@@ -7,6 +7,18 @@ import heapq
 import readline
 import sentencepiece as spm
 
+"""
+Runs an interactive demo of a pretrained language model.
+
+Given a sentence beginning, it will try to predict the next tokens. Usage:
+
+python ./04_demo.py \
+        --pretrained-model ./model3-40.hdf5 \
+        --spm-model-file ./plato-sp5k.model \
+        --max-seq-len 40 \
+        --add-bos
+"""
+
 # todo: migrate spmto tensorflow_text?
 UNK_ID=0; PAD_ID=1; BOS_ID=2; EOS_ID=3
 logging.basicConfig(level=logging.INFO)

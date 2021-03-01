@@ -5,7 +5,10 @@ import sentencepiece as spm
 """
 Trains SPM model
 
-python ./02_build_spm.py --pretokenized-text $LM_MODELS/../datasets/books/therepublic_pretokenized.txt --vocab-size 5000 --model-prefix plato
+python ./02_build_spm.py \
+        --pretokenized-text $LM_MODELS/../datasets/books/therepublic_pretokenized.txt \
+        --vocab-size 5000 \
+        --model-prefix plato
 
 """
 

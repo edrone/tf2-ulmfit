@@ -7,7 +7,9 @@ logging.basicConfig(level=logging.INFO)
 """
 Does basic cleanup
 
-python ./01_cleanup.py --input-text $LM_MODELS/../datasets/books/therepublic.txt --lang english
+python ./01_cleanup.py \
+       --input-text $LM_MODELS/../datasets/books/therepublic.txt \
+       --lang english
 
 """
 
