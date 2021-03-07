@@ -94,7 +94,7 @@ def main(args):
     batch_generator.print_batch_info()
     simple_model = build_keras_model(spmproc, args)
     #checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(args['ckpt_path'], f"{args['exp_name']}-{epoch:02d}.hdf5"), verbose=1)
-    checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=args['ckpt_path']+"/"+args['exp_name']+"-{epoch:02d}.hdf5", verbose=1)
+    checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=args['ckpt_path']+"/"+args['exp_name']+"-{epoch:02d}.hdf5", save_freq=500, verbose=1)
     simple_model.summary()
     # simple_model.load_weights("./model-06.hdf5")
     simple_model.fit(batch_generator.generate(), \
