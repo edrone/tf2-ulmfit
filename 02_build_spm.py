@@ -21,6 +21,14 @@ def main(args):
     spm.SentencePieceTrainer.train(input=args['pretokenized_text'], vocab_size=args['vocab_size'], \
                                    unk_id=0, pad_id=1, bos_id=2, eos_id=3, model_prefix=model_prefix, \
                                    model_type='bpe', character_coverage=1.0, num_threads=4)
+    print("Training completed!. Now you need to tokenize your corpus as follows:")
+    print()
+    print(f"1. To obtain word pieces (for sanity check, usually not needed for training):")
+    print(f"   $ spm_encode --model ./{model_prefix}.model \\\n" \
+           "     input_corpus.txt --extra_options=\"bos:eos\" > tokenized_train_pieces.txt")
+    print(f"2. To obtain piece ids: (needed for training)")
+    print(f"   $ spm_encode --model ./{model_prefix}.model \\\n" \
+           "     input_corpus.txt --extra_options=\"bos:eos\" --output-format id > tokenized_train_ids.txt")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
