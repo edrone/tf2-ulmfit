@@ -49,6 +49,14 @@ class KerasLMSentenceLevelBatchGenerator(object):
             raise ValueError("Skip step needs to be greater than or equal to the max sequence length")
         self.x_sequences = x_sequences
         if strategy == 'slurp':
+            self.x_sequences = []
+            with open(x_sequences, 'r', encoding='utf-8') as f:
+                for line in f:
+                    tokens = np.genfromtxt(StringIO(line))
+                    if len(tokens) > min_seq_len: self.x_sequences.append(tokens)
+            self.x_sequences = tf.keras.preprocessing.sequence.pad_sequences(self.x_sequences, padding='post', truncating='post',\
+                                                                             maxlen=max_seq_len, \
+                                                                             value=pad_idx_or_symbol)
             self.explicit_seq_len = len(x_sequences)
         else:
             self.explicit_seq_len = explicit_x_seq_len
@@ -113,21 +121,40 @@ class KerasLMSentenceLevelBatchGenerator(object):
         print(f"SLURP / Number of sliding windows: {num_sliding_windows}")
         print(f"SLURP / Expected number of rows in shifted x_sequences: {num_sliding_windows*self.num_shifted_sentences}")
 
+        x = []
+        y = []
         while True:
             if self.current_idx + self.num_shifted_sentences >= self.explicit_seq_len:
                 # reset the index back to the start of the data set
                 self.current_idx = 0
-            x = []
-            y = []
-
             for window_idx in range(num_sliding_windows): # shift the sequence *to the left* by `skip_step` tokens
                 x_shifted = self.x_sequences[self.current_idx:self.current_idx+self.num_shifted_sentences][:,window_idx*self.skip_step:]
-                x.extend(x_shifted)
-                y.extend(x_shifted[:, 1:])
+                for single_row in x_shifted: # show only sequences that contain something else than padding
+                    if np.all(single_row == np.full_like(single_row, self.pad_idx_or_symbol)):
+                        continue
+                    x.append(single_row)
+                    y.append(single_row[1:])
+                    if len(x) == len(y) == self.explicit_batch_size:
+                        x_arr = tf.keras.preprocessing.sequence.pad_sequences(x, maxlen=self.max_seq_len, value=1, padding="post")
+                        y_arr = tf.keras.preprocessing.sequence.pad_sequences(y, maxlen=self.max_seq_len, value=1, padding="post")
+                        x = []
+                        y = []
+                        yield x_arr, y_arr
             self.current_idx += self.num_shifted_sentences
-            x = tf.keras.preprocessing.sequence.pad_sequences(x, maxlen=self.max_seq_len, value=1, padding="post")
-            y = tf.keras.preprocessing.sequence.pad_sequences(y, maxlen=self.max_seq_len, value=1, padding="post")
-            yield x, y
+
+
+
+
+
+#                if np.all(x_shifted == np.full_like(x_shifted, self.pad_idx_or_symbol)): # no point in left shifting if all we see is padding
+#                    continue
+#                x.extend(x_shifted)
+#                y.extend(x_shifted[:, 1:])
+#                
+#            self.current_idx += self.num_shifted_sentences
+#            x = tf.keras.preprocessing.sequence.pad_sequences(x, maxlen=self.max_seq_len, value=1, padding="post")
+#            y = tf.keras.preprocessing.sequence.pad_sequences(y, maxlen=self.max_seq_len, value=1, padding="post")
+#            yield x, y
 
     def _generate_from_disk(self):
         num_sliding_windows = self.max_seq_len // self.skip_step # each batch will generate num_shifted_sentences * num_sliding_windows examples
