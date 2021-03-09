@@ -77,8 +77,8 @@ def main(args):
     # logging.info(str([spmproc.id_to_piece(i) for i in range(10)]))
     # logging.info(f"Running tokenization and padding...")
     # x_sequences = args['corpus_path'] if args['no_slurp'] is True else prepare_sequences(spmproc, args)
-    num_sents = int(subprocess.check_output(['wc', '-l', args['encoded_corpus']]).split()[0])
-    batch_generator = KerasLMSentenceLevelBatchGenerator(x_sequences=args['encoded_corpus'], \
+    num_sents = int(subprocess.check_output(['wc', '-l', args['encoded_trainset']]).split()[0])
+    batch_generator = KerasLMSentenceLevelBatchGenerator(x_sequences=args['encoded_trainset'], \
                                                          max_seq_len=args['max_seq_len'], 
                                                          min_seq_len=args['min_seq_len'],\
                                                          num_shifted_sentences=args.get('num_sents_to_shift') or 3, \
@@ -87,21 +87,42 @@ def main(args):
                                                          explicit_x_seq_len=num_sents, \
                                                          strategy='shift_as_needed', \
                                                          explicit_batch_size=args.get('explicit_batch_size'))
+    valid_batch_generator = None
+    if args.get('encoded_validset') is not None:
+        valid_batch_generator = KerasLMSentenceLevelBatchGenerator(x_sequences=args['encoded_validset'], \
+                                                             max_seq_len=args['max_seq_len'],
+                                                             min_seq_len=args['min_seq_len'],\
+                                                             num_shifted_sentences=args.get('num_sents_to_shift') or 3, \
+                                                             pad_idx_or_symbol=PAD_ID, \
+                                                             skip_step=args.get('skip_step') or 5, \
+                                                             explicit_x_seq_len=None, \
+                                                             strategy='slurp', \
+                                                             explicit_batch_size=args.get('explicit_batch_size'))
     batch_generator.print_batch_info()
     simple_model = build_keras_model(spmproc, args)
     #checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(args['ckpt_path'], f"{args['exp_name']}-{epoch:02d}.hdf5"), verbose=1)
     checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=args['ckpt_path']+"/"+args['exp_name']+"-{epoch:02d}.hdf5", save_freq=500, verbose=1)
     simple_model.summary()
     # simple_model.load_weights("./model-06.hdf5")
-    simple_model.fit(batch_generator.generate(), \
-                     steps_per_epoch=batch_generator.get_steps_per_epoch(), \
-                     epochs=args['num_epochs'],
-                     callbacks=[checkpointer]
-                    )
+    if valid_batch_generator is not None:
+        simple_model.fit(batch_generator.generate(), \
+                         validation_data=valid_batch_generator.generate(), \
+                         validation_steps=1000, \
+                         steps_per_epoch=batch_generator.get_steps_per_epoch(), \
+                         epochs=args['num_epochs'],
+                         callbacks=[checkpointer]
+                        )
+    else:
+        simple_model.fit(batch_generator.generate(), \
+                         steps_per_epoch=batch_generator.get_steps_per_epoch(), \
+                         epochs=args['num_epochs'],
+                         callbacks=[checkpointer]
+                        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--encoded-corpus", required=True, help="Path to an encoded corpus. One line = one sentence. Lines contain sentencepiece ids.")
+    parser.add_argument("--encoded-trainset", required=True, help="Path to an encoded corpus. One line = one sentence. Lines contain sentencepiece ids.")
+    parser.add_argument("--encoded-validset", required=False, help="Path to an encoded corpus. One line = one sentence. Lines contain sentencepiece ids.")
     #parser.add_argument("--no-slurp", required=False, action='store_true', help="If set to true, the following is assumed: 1) input file contains preprocessed, pretokenized text coverted to SPM ids, 2) one encoded sentence = one line. Use this if your input is gigantic and you don't want to slurp everything to memory.")
     #parser.add_argument("--feed-method", choices=['sentence_tokenized', 'running_text'], default="sentence_tokenized")
     parser.add_argument("--spm-model-file", required=True, help="Sentencepiece .model file")
