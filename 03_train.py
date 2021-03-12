@@ -106,6 +106,9 @@ def main(args):
         simple_model.set_weights(pretrained.get_weights())
     #checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(args['ckpt_path'], f"{args['exp_name']}-{epoch:02d}.hdf5"), verbose=1)
     checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=args['ckpt_path']+"/"+args['exp_name']+"-{epoch:02d}.hdf5", save_freq=500, verbose=1)
+    cb_functions = [checkpointer]
+    if args.get('tensorboard_dir') is not None:
+        cb_functions.append(tf.keras.callbacks.TensorBoard(log_dir=args['tensorboard_dir'], update_freq=30))
     simple_model.summary()
     # simple_model.load_weights("./model-06.hdf5")
     if valid_batch_generator is not None:
@@ -114,13 +117,13 @@ def main(args):
                          validation_steps=valid_batch_generator.get_steps_per_epoch() // 5, \
                          steps_per_epoch=batch_generator.get_steps_per_epoch(), \
                          epochs=args['num_epochs'],
-                         callbacks=[checkpointer]
+                         callbacks=cb_functions
                         )
     else:
         simple_model.fit(batch_generator.generate(), \
                          steps_per_epoch=batch_generator.get_steps_per_epoch(), \
                          epochs=args['num_epochs'],
-                         callbacks=[checkpointer]
+                         callbacks=cb_functions
                         )
 
 if __name__ == "__main__":
@@ -142,5 +145,6 @@ if __name__ == "__main__":
     parser.add_argument("--num-epochs", type=int, default=10, help="Number of epochs to train for")
     parser.add_argument("--ckpt-path", default=".", help="Where to strore trained checkpoints")
     parser.add_argument("--exp-name", required=True, help="Experiment name")
+    parser.add_argument("--tensorboard_dir", required=False, help="Tensorboard dir")
     argz = parser.parse_args()
     main(vars(argz))
