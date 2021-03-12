@@ -100,6 +100,10 @@ def main(args):
                                                              explicit_batch_size=args.get('explicit_batch_size'))
     batch_generator.print_batch_info()
     simple_model = build_keras_model(spmproc, args)
+    if args.get('finetune_from') is not None:
+        logging.info(f"Restoring checkpoint from {args['finetune_from']} and copying weights...")
+        pretrained = tf.keras.models.load_model(args['finetune_from'])
+        simple_model.set_weights(pretrained.get_weights())
     #checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(args['ckpt_path'], f"{args['exp_name']}-{epoch:02d}.hdf5"), verbose=1)
     checkpointer = tf.keras.callbacks.ModelCheckpoint(filepath=args['ckpt_path']+"/"+args['exp_name']+"-{epoch:02d}.hdf5", save_freq=500, verbose=1)
     simple_model.summary()
@@ -107,7 +111,7 @@ def main(args):
     if valid_batch_generator is not None:
         simple_model.fit(batch_generator.generate(), \
                          validation_data=valid_batch_generator.generate(), \
-                         validation_steps=1000, \
+                         validation_steps=valid_batch_generator.get_steps_per_epoch() // 5, \
                          steps_per_epoch=batch_generator.get_steps_per_epoch(), \
                          epochs=args['num_epochs'],
                          callbacks=[checkpointer]
@@ -123,11 +127,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--encoded-trainset", required=True, help="Path to an encoded corpus. One line = one sentence. Lines contain sentencepiece ids.")
     parser.add_argument("--encoded-validset", required=False, help="Path to an encoded corpus. One line = one sentence. Lines contain sentencepiece ids.")
+    parser.add_argument("--finetune-from", required=False, help="Path to an .hdf5 file with a pretrained model. Use this for finetuning.")
     #parser.add_argument("--no-slurp", required=False, action='store_true', help="If set to true, the following is assumed: 1) input file contains preprocessed, pretokenized text coverted to SPM ids, 2) one encoded sentence = one line. Use this if your input is gigantic and you don't want to slurp everything to memory.")
     #parser.add_argument("--feed-method", choices=['sentence_tokenized', 'running_text'], default="sentence_tokenized")
     parser.add_argument("--spm-model-file", required=True, help="Sentencepiece .model file")
-    #parser.add_argument("--add-bos", required=False, action='store_true', help="Will add <s> tokens")
-    #parser.add_argument("--add-eos", required=False, action='store_true', help="Will add </s> tokens")
     parser.add_argument("--min-seq-len", required=False, type=int, default=15, help="Minimum number of wordpiece tokens in a sequence")
     parser.add_argument("--max-seq-len", required=True, type=int, help="Maximum number of wordpiece tokens in a sequence")
     parser.add_argument("--padding-direction", choices=['pre', 'post'], default='post', help="Pre or post padding (for LM training 'post' seems better than 'pre')")
