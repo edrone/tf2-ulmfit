@@ -25,7 +25,8 @@ def main(args):
     if args['model_type'] == 'causal':
         ppl_score, num_sents = calculate_ppl(restored_model=model,
                                              corpus_loader=corpus_loader,
-                                             is_pretokenized=args['is_pretokenized'])
+                                             is_pretokenized=args['is_pretokenized'],
+                                             is_softmaxed=not args.get('lm_head_needs_softmaxing'))
         print(f"Perplexity = {ppl_score} (on {num_sents} sentences)")
     else:
         raise NotImplementedError(f"Unsupported model type {model_type}")
@@ -53,6 +54,8 @@ if __name__ == "__main__":
                       help="Which tokenizer loader class to use (AutoTokenizer or PreTrainedTokenizerFast")
     #### CAUSAL LM ####
     argz.add_argument("--is-pretokenized", action='store_true', help="Whether the corpus is pretokenized and converted to token IDs")
+    argz.add_argument("--lm-head-needs-softmaxing", action='store_true', help="If set, the LM head has linear activation and scores " \
+                                                                              "need to be softmaxed before evaluating PPL")
     argz.add_argument("--batch-size", type=int, default=64, help="Default batch size for predictions")
 
     argz = vars(argz.parse_args())
