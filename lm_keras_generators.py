@@ -48,15 +48,16 @@ class KerasLMSentenceLevelBatchGenerator(object):
         if skip_step > max_seq_len:
             raise ValueError("Skip step needs to be greater than or equal to the max sequence length")
         self.x_sequences = x_sequences
-        if strategy == 'slurp':
+        if strategy in ['slurp', 'slurp_as_is']:
             self.x_sequences = []
             with open(x_sequences, 'r', encoding='utf-8') as f:
                 for line in f:
-                    tokens = np.genfromtxt(StringIO(line))
+                    tokens = np.genfromtxt(StringIO(line)) if strategy == 'slurp' else list(map(int, line.split()))
                     if len(tokens) > min_seq_len: self.x_sequences.append(tokens)
-            self.x_sequences = tf.keras.preprocessing.sequence.pad_sequences(self.x_sequences, padding='post', truncating='post',\
-                                                                             maxlen=max_seq_len, \
-                                                                             value=pad_idx_or_symbol)
+            if strategy == 'slurp':
+                self.x_sequences = tf.keras.preprocessing.sequence.pad_sequences(self.x_sequences, padding='post', truncating='post',\
+                                                                                 maxlen=max_seq_len, \
+                                                                                 value=pad_idx_or_symbol)
             self.explicit_seq_len = len(x_sequences)
         else:
             self.explicit_seq_len = explicit_x_seq_len
@@ -109,6 +110,9 @@ class KerasLMSentenceLevelBatchGenerator(object):
             return self._generate_shift_as_needed(kwargs)
         elif self.strategy == 'slurp':
             return self._generate_slurped()
+        elif self.strategy == 'slurp_as_is':
+            raise ValueError("Generating sequences is not available for `slurp_as_is`. " \
+                             "Please access the x_sequences field directly instead.")
         elif self.strategy == 'from_disk':
             return self._generate_from_disk()
         elif self.strategy == 'running_text':
@@ -141,20 +145,6 @@ class KerasLMSentenceLevelBatchGenerator(object):
                         y = []
                         yield x_arr, y_arr
             self.current_idx += self.num_shifted_sentences
-
-
-
-
-
-#                if np.all(x_shifted == np.full_like(x_shifted, self.pad_idx_or_symbol)): # no point in left shifting if all we see is padding
-#                    continue
-#                x.extend(x_shifted)
-#                y.extend(x_shifted[:, 1:])
-#                
-#            self.current_idx += self.num_shifted_sentences
-#            x = tf.keras.preprocessing.sequence.pad_sequences(x, maxlen=self.max_seq_len, value=1, padding="post")
-#            y = tf.keras.preprocessing.sequence.pad_sequences(y, maxlen=self.max_seq_len, value=1, padding="post")
-#            yield x, y
 
     def _generate_from_disk(self):
         num_sliding_windows = self.max_seq_len // self.skip_step # each batch will generate num_shifted_sentences * num_sliding_windows examples
