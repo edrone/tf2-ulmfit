@@ -27,10 +27,19 @@ recurrent_layer = tf.keras.layers.RNN(AWD_cell1, return_sequences=True)(embeddin
 ```
 
 ## ULMFit language model for TensorFlow 2.0
-There are many more regularization and preprocessing quirks needed to port ULMFit than just AWD-LSTM. For inference, you can even just export weights from Fast.ai's implementation and read them into Keras LSTM layers - there is no dropout during inference, so your output will be numerically compatible. However, for training you would need to replicate all the quirks plus use the same optimizer as the paper's authors. Some of the things that are still missing:
+There are many more regularization and preprocessing quirks needed to port ULMFit than just AWD-LSTM. For inference, you can even just export weights from Fast.ai's implementation and read them into Keras LSTM layers - there is no dropout during inference, so your output will be numerically compatible. However, for training you would need to replicate all the quirks plus use the same optimizer as the paper's authors.
+
+I tried to be as faithful as I possibly could to both the paper and the Fast.ai's implementation in PyTorch. Here are all the regularization tricks I have implemented for the **language modelling / fine-tuning**:
 
 * embedding dropout
-* replicating the optimizer's behavior (one-cycle policy or slanted triangular rates)
+* input dropout
+* weight dropout (AWD-LSTM)
+* weight tying between embeddings and the LM head
 
+See [almost_ulmfit_tf2.py](almost_ulmfit_tf2.py) for a version that includes the language modelling head. I haven't really tested yet what happens when you run it on an actual LM task. This is because ULMFit needs a carefully chosen optimizer (slanted triangular learning rates, later replaced with something called one-cycle policy). I'm not really sure what will happen if you run it with out-of-the-box Adam optimizer from Keras. The model will most likely overfit, but go ahead and try it yourself if you have GPU time.
 
-See [almost_ulmfit_tf2.py](almost_ulmfit_tf2.py) for a skeleton version that includes the language modelling head. I haven't really tested yet what happens when you run it on an actual LM task with Keras default optimizers, but go ahead and try it yourself if you have GPU time.
+## TODO: ULMFiT for text classification for TensorFlow 2.0
+Not yet done. This is quite straightforward in terms of tensor operations, but difficult when it comes to optimizers. I'll get to it 'soon'.
+
+## TODO: ULMFiT for sequence tagging for TensorFlow 2.0
+Frankly speaking, I haven't seen anyone (not even ULMFiT's authors) using this model for things like NER. Maybe the model which is excellent on text classification is so bad at sequence tagging that the authors didn't even want to mention the results? I'll try to investigate it 'a little later'.
