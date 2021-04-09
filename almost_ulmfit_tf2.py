@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from awdlstm_tf2 import WeightDropLSTMCell
 
@@ -15,11 +16,12 @@ def almost_ulmfit_model():
     AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
 
     il = tf.keras.layers.Input(shape=(MAX_SEQ_LEN,))
-    embedz = tf.keras.layers.Embedding(VOCAB_SIZE,
-                                       400,
-                                       embeddings_initializer=uniform_initializer,
-                                       mask_zero=True,
-                                       name="ulmfit_embeds")
+    embedz = CustomMaskableEmbedding(VOCAB_SIZE,
+                                     400,
+                                     embeddings_initializer=uniform_initializer,
+                                     mask_zero=False,
+                                     mask_value=1,
+                                     name="ulmfit_embeds")
     encoder_dropout = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")
     input_dropout = tf.keras.layers.SpatialDropout1D(0.4, name="inp_dropout")
 
@@ -54,6 +56,7 @@ def almost_ulmfit_model():
 
     # TODO:
     # 1) [DONE] Weight tying
+    # 1) [DONE] use 1, not 0 for mask/pad
     # 2) One-cycle policy,
     # 3) Optionally the tokenizer as module,
     # 4) Heads for finetuning LM + Head for text classification
@@ -119,3 +122,31 @@ class TiedDense(tf.keras.layers.Layer):
         wx = tf.matmul(inputs, self.ref_layer.weights[0], transpose_b=True)
         z = self.activation_fn(wx + self.biases)
         return z
+
+class CustomMaskableEmbedding(tf.keras.layers.Embedding):
+    """ Enhancement of TF's embedding layer where you can set the custom
+        value for the mask token, not just zero. SentencePiece uses 1 for <pad>
+        and 0 for <unk> and ULMFiT has adopted this convention too.
+    """
+    def __init__(self,
+            input_dim,
+            output_dim,
+            embeddings_initializer='uniform',
+            embeddings_regularizer=None,
+            activity_regularizer=None,
+            embeddings_constraint=None,
+            mask_value=None,
+            input_length=None,
+            **kwargs):
+        super().__init__(input_dim=input_dim, output_dim=output_dim,
+                         embeddings_initializer=embeddings_initializer,
+                         embeddings_regularizer=embeddings_regularizer,
+                         activity_regularizer=activity_regularizer,
+                         embeddings_constraint=embeddings_constraint,
+                         input_length=input_length, **kwargs)
+        self.mask_value=mask_value
+
+    def compute_mask(self, inputs, mask=None):
+        if not self.mask_value:
+            return None
+        return math_ops.not_equal(inputs, self.mask_value)
