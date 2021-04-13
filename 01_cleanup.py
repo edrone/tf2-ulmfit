@@ -31,6 +31,51 @@ def basic_cleanup(corpus_blob, lang):
     sents = [unicodedata.normalize('NFKC', sent) for sent in sents]
     return sents
 
+def recase(text, min_span=4, cap_first=False):
+    """ Converts spans of min_span UPPERCASE tokens to more a likely form:
+
+        You must INVEST AT ONCE OR LOSE an excellent OPPORTUNITY =>
+        You must invest at once or lose an excellent OPPORTUNITY
+    """
+    ret = []
+    splits = text.split()
+    if len(splits) < min_span: # nothing to do
+        return text
+    pos = 0
+    while pos < len(splits):
+        upper_cnt = 0
+        j = pos
+        while j < len(splits):
+            if splits[j].isupper():
+                upper_cnt += 1
+                j += 1
+            else:
+                break
+        if upper_cnt >= min_span:
+            ret.extend(list(map(lambda p: p.lower(), splits[pos:pos+upper_cnt])))
+            pos += upper_cnt
+        else:
+            ret.append(splits[pos])
+            pos += 1
+    return " ".join(ret)
+
+def attempt_split(text, hunspell_obj, min_len=20):
+    """ Attempts to split words that were accidentally merged, e.g.
+        'narzędziaklucz' => 'narzędzia klucz'
+    """
+    ret = []
+    splits = text.split()
+    for fake_token in splits:
+        if len(fake_token) < min_len:
+            ret.append(fake_token)
+        else:
+            splitted_candidate = hunspell_obj.suggest(fake_token.strip(',.-+!?"')) # punctuation goes to hell here...
+            if splitted_candidate == []:
+                ret.append(fake_token)
+            else:
+                ret.append(splitted_candidate[0])
+    return " ".join(ret)
+
 def main(args):
     logging.info(f"Reading input file {args['input_text']}")
     with open(args['input_text'], 'r', encoding='utf-8') as f:
