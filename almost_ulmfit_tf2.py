@@ -1,28 +1,38 @@
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
+from tensorflow.keras.layers import LSTMCell
 from awdlstm_tf2 import WeightDropLSTMCell
 
 VOCAB_SIZE=35000
 MAX_SEQ_LEN=70
+
+#
+#m = tf.keras.models.load_model('ull', custom_objects={'CustomMaskableEmbedding': CustomMaskableEmbedding, 'EmbeddingDropout': EmbeddingDropout, 'WeightDropLSTMCell': WeightDropLSTMCell, 'TiedDense': TiedDense})
+#
+
 
 def almost_ulmfit_model():
 
     # layer initializers as per the AWD-LSTM paper
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None)
     # AWD LSTM cells as per the said paper
-    AWD_LSTM_Cell1 = WeightDropLSTMCell(1150, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-    AWD_LSTM_Cell2 = WeightDropLSTMCell(1150, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-    AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+    #AWD_LSTM_Cell1 = WeightDropLSTMCell(1150, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+    #AWD_LSTM_Cell2 = WeightDropLSTMCell(1150, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+    #AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
 
-    il = tf.keras.layers.Input(shape=(MAX_SEQ_LEN,))
+    AWD_LSTM_Cell1 = LSTMCell(1150, kernel_initializer='glorot_uniform')
+    AWD_LSTM_Cell2 = LSTMCell(1150, kernel_initializer='glorot_uniform')
+    AWD_LSTM_Cell3 = LSTMCell(400, kernel_initializer='glorot_uniform')
+    il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
     embedz = CustomMaskableEmbedding(VOCAB_SIZE,
                                      400,
                                      embeddings_initializer=uniform_initializer,
                                      mask_zero=False,
                                      mask_value=1,
                                      name="ulmfit_embeds")
-    encoder_dropout = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")
+    encoder_dropout = RaggedEmbeddingDropout(encoder_dp_rate=0.4, name="ragged_emb_dropout")
+    # ;STAD - ponizsze tez bedzie do zaorania z zalozeniem, ze przychodzi ragged tensor
     input_dropout = tf.keras.layers.SpatialDropout1D(0.4, name="inp_dropout")
 
     rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
@@ -44,6 +54,7 @@ def almost_ulmfit_model():
     m.add(rnn1); m.add(rnn1_drop)
     m.add(rnn2); m.add(rnn2_drop)
     m.add(rnn3); m.add(rnn3_drop)
+    return m
     
     #fc_head = tf.keras.layers.TimeDistributed(TiedDense(m.layers[0]))
     #fc_head_dp = tf.keras.layers.Dropout(0.05)
@@ -68,8 +79,56 @@ def almost_ulmfit_model():
     return m
 
 
+# @tf.keras.utils.register_keras_serializable()
+class RaggedEmbeddingDropout(tf.keras.layers.Layer):
+    def __init__(self, encoder_dp_rate, **kwargs):
+        super(RaggedEmbeddingDropout, self).__init__(**kwargs)
+        self.trainable = False
+        self.encoder_dp_rate = encoder_dp_rate
+        self.supports_masking = True
+        self.bsize = None
+        self._supports_ragged_inputs = True # for compatibility with TF 2.2
+
+    def build(self, input_shape):
+        self.bsize = input_shape[0]
+        print(">>>> INSIDE BUILD <<<< ")
+
+    def call(self, inputs, training=None): # inputs is a ragged tensor now
+        if training is None:
+            training = tf.keras.backend.learning_phase()
+
+        @tf.function()
+        def dropped_embedding():
+            """ Drops whole words. Almost, but not 100% the same as dropping them inside the encoder """
+            flattened_batch = inputs.flat_values # inputs is a ragged tensor
+            row_starts = inputs.row_starts() # size = batch size
+            # row_length = input.row.lengths() 
+            # bsize = tf.shape(inputs)[0]
+            # seq_len = tf.shape(inputs)[1]
+            tf.print(f"{tf.shape(flattened_batch)}")
+            ones = tf.ones((tf.shape(flattened_batch)[0],), dtype=tf.float32)
+            dp_mask = tf.nn.dropout(ones, rate=self.encoder_dp_rate)
+            dp_mask = tf.cast(tf.cast(dp_mask, tf.bool), tf.float32) # proper zeros and ones
+            dropped_flat = tf.multiply(flattened_batch, tf.expand_dims(dp_mask, axis=1)) # axis is 1 because we still haven't restored the number of train examples in a batch
+            dropped_out_ragged = tf.RaggedTensor.from_row_starts(dropped_flat, row_starts)
+            return dropped_out_ragged
+
+        ret = tf.cond(tf.convert_to_tensor(training),
+                      dropped_embedding,
+                      lambda: array_ops.identity(inputs))
+        return ret
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
+        return cfg
+
+
+@tf.keras.utils.register_keras_serializable()
 class EmbeddingDropout(tf.keras.layers.Layer):
-    """ THIS LAYER IS BROKEN - DON'T USE IT! I'LL FIX IT 'SOON' """
     def __init__(self, encoder_dp_rate, **kwargs):
         super(EmbeddingDropout, self).__init__(**kwargs)
         self.trainable = False
@@ -85,6 +144,7 @@ class EmbeddingDropout(tf.keras.layers.Layer):
         if training is None:
             training = tf.keras.backend.learning_phase()
 
+        @tf.function()
         def dropped_embedding():
             """ Drops whole words. Almost, but not 100% the same as dropping them inside the encoder """
             bsize = tf.shape(inputs)[0]
@@ -95,7 +155,7 @@ class EmbeddingDropout(tf.keras.layers.Layer):
             dropped = inputs * tf.expand_dims(dp_mask, axis=2)
             return dropped
 
-        ret = tf.cond(training,
+        ret = tf.cond(tf.convert_to_tensor(training),
                       dropped_embedding,
                       lambda: array_ops.identity(inputs))
         return ret
@@ -103,26 +163,43 @@ class EmbeddingDropout(tf.keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return input_shape
 
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
+        return cfg
+
+@tf.keras.utils.register_keras_serializable()
 class TiedDense(tf.keras.layers.Layer):
-    def __init__(self, reference_layer, add_bias=True, activation=None, **kwargs):
+    def __init__(self, reference_layer, activation, **kwargs):
         self.ref_layer = reference_layer
         self.biases = None
         self.activation_fn = tf.keras.activations.get(activation)
-        self.add_bias = add_bias
         super().__init__(**kwargs)
 
     def build(self, input_shape):
-        if self.add_bias is True:
-            self.biases = self.add_weight(name='tied_bias',
-                                          shape=[self.ref_layer.weights[0].shape[0]],
-                                          initializer='zeros')
+        #self.biases = self.add_weight(name='tied_bias',
+        #                              shape=[self.ref_layer.weights[0].shape[0]],
+        #                              initializer='zeros')
+        self.biases = self.add_weight(name='tied_bias',
+                                      shape=[self.ref_layer.input_dim],
+                                      initializer='zeros')
         super().build(input_shape)
 
     def call(self, inputs):
-        wx = tf.matmul(inputs, self.ref_layer.weights[0], transpose_b=True)
-        z = self.activation_fn(wx + self.biases)
+        try:
+            wx = tf.matmul(inputs, self.ref_layer.weights[0], transpose_b=True)
+            z = self.activation_fn(wx + self.biases)
+        except:
+            print("Warning, warning...")
+            z = tf.matmul(inputs, tf.zeros((self.ref_layer.input_dim, self.ref_layer.output_dim)), transpose_b=True)
         return z
 
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'reference_layer': self.ref_layer, 'activation': self.activation_fn})
+        return cfg
+
+@tf.keras.utils.register_keras_serializable()
 class CustomMaskableEmbedding(tf.keras.layers.Embedding):
     """ Enhancement of TF's embedding layer where you can set the custom
         value for the mask token, not just zero. SentencePiece uses 1 for <pad>
@@ -150,3 +227,8 @@ class CustomMaskableEmbedding(tf.keras.layers.Embedding):
         if not self.mask_value:
             return None
         return math_ops.not_equal(inputs, self.mask_value)
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'mask_value': self.mask_value})
+        return cfg
