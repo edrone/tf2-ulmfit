@@ -11,8 +11,10 @@ MAX_SEQ_LEN=70
 #m = tf.keras.models.load_model('ull', custom_objects={'CustomMaskableEmbedding': CustomMaskableEmbedding, 'EmbeddingDropout': EmbeddingDropout, 'WeightDropLSTMCell': WeightDropLSTMCell, 'TiedDense': TiedDense})
 #
 
+# au.save('nietrasowany', save_traces=False)
 
-def almost_ulmfit_model():
+
+def almost_ulmfit_model(fixed_seq_len=None):
 
     # layer initializers as per the AWD-LSTM paper
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None)
@@ -24,14 +26,20 @@ def almost_ulmfit_model():
     AWD_LSTM_Cell1 = LSTMCell(1150, kernel_initializer='glorot_uniform')
     AWD_LSTM_Cell2 = LSTMCell(1150, kernel_initializer='glorot_uniform')
     AWD_LSTM_Cell3 = LSTMCell(400, kernel_initializer='glorot_uniform')
-    il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
+    if fixed_seq_len is None:
+        il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
+    else:
+        il = tf.keras.layers.Input(shape=(fixed_seq_len,), dtype=tf.int32)
     embedz = CustomMaskableEmbedding(VOCAB_SIZE,
                                      400,
                                      embeddings_initializer=uniform_initializer,
                                      mask_zero=False,
                                      mask_value=1,
                                      name="ulmfit_embeds")
-    encoder_dropout = RaggedEmbeddingDropout(encoder_dp_rate=0.4, name="ragged_emb_dropout")
+    if fixed_seq_len is None:
+        encoder_dropout = RaggedEmbeddingDropout(encoder_dp_rate=0.4, name="ragged_emb_dropout")
+    else:
+        encoder_dropout = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")
     # ;STAD - ponizsze tez bedzie do zaorania z zalozeniem, ze przychodzi ragged tensor
     input_dropout = tf.keras.layers.SpatialDropout1D(0.4, name="inp_dropout")
 
@@ -54,16 +62,16 @@ def almost_ulmfit_model():
     m.add(rnn1); m.add(rnn1_drop)
     m.add(rnn2); m.add(rnn2_drop)
     m.add(rnn3); m.add(rnn3_drop)
-    return m
     
     #fc_head = tf.keras.layers.TimeDistributed(TiedDense(m.layers[0]))
     #fc_head_dp = tf.keras.layers.Dropout(0.05)
     #fc_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(VOCAB_SIZE, activation='softmax'))
-    fc_head = TiedDense(reference_layer=embedz, activation='softmax', name='lm_head_tied')
+    fc_head = tf.keras.layers.TimeDistributed(TiedDense(reference_layer=embedz, activation='softmax'), name='lm_head_tied')
     fc_head_dp = tf.keras.layers.Dropout(0.05)
 
     m.add(fc_head)
     m.add(fc_head_dp)
+    return m
 
     # TODO:
     # 1) [DONE] Weight tying
@@ -79,7 +87,7 @@ def almost_ulmfit_model():
     return m
 
 
-# @tf.keras.utils.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable()
 class RaggedEmbeddingDropout(tf.keras.layers.Layer):
     def __init__(self, encoder_dp_rate, **kwargs):
         super(RaggedEmbeddingDropout, self).__init__(**kwargs)
@@ -97,7 +105,6 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
         if training is None:
             training = tf.keras.backend.learning_phase()
 
-        @tf.function()
         def dropped_embedding():
             """ Drops whole words. Almost, but not 100% the same as dropping them inside the encoder """
             flattened_batch = inputs.flat_values # inputs is a ragged tensor
@@ -144,7 +151,6 @@ class EmbeddingDropout(tf.keras.layers.Layer):
         if training is None:
             training = tf.keras.backend.learning_phase()
 
-        @tf.function()
         def dropped_embedding():
             """ Drops whole words. Almost, but not 100% the same as dropping them inside the encoder """
             bsize = tf.shape(inputs)[0]
@@ -194,6 +200,9 @@ class TiedDense(tf.keras.layers.Layer):
             z = tf.matmul(inputs, tf.zeros((self.ref_layer.input_dim, self.ref_layer.output_dim)), transpose_b=True)
         return z
 
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.ref_layer.weights[0].shape[0])
+
     def get_config(self):
         cfg = super().get_config()
         cfg.update({'reference_layer': self.ref_layer, 'activation': self.activation_fn})
@@ -232,3 +241,51 @@ class CustomMaskableEmbedding(tf.keras.layers.Embedding):
         cfg = super().get_config()
         cfg.update({'mask_value': self.mask_value})
         return cfg
+
+@tf.keras.utils.register_keras_serializable()
+class RaggedSpatialDropout1D(tf.keras.layers.Layer):
+    def __init__(self, dp_rate, **kwargs):
+        super(RaggedEmbeddingDropout, self).__init__(**kwargs)
+        self.trainable = False
+        self.dp_rate = dp_rate
+        self.supports_masking = True
+        self.bsize = None
+        self._supports_ragged_inputs = True # for compatibility with TF 2.2
+
+    def build(self, input_shape):
+        self.bsize = input_shape[0]
+        print(">>>> INSIDE BUILD / RSD<<<< ")
+
+    def call(self, inputs, training=None): # inputs is a ragged tensor now
+        if training is None:
+            training = tf.keras.backend.learning_phase()
+
+        def dropped_1d(): #; STAD
+            """ Spatial 1D dropout which operates on ragged tensors """
+            flattened_batch = inputs.flat_values # inputs is a ragged tensor
+            row_starts = inputs.row_starts() # size = batch size
+            # row_length = input.row.lengths() 
+            # bsize = tf.shape(inputs)[0]
+            # seq_len = tf.shape(inputs)[1]
+            tf.print(f"{tf.shape(flattened_batch)}")
+            ones = tf.ones((tf.shape(flattened_batch)[0],), dtype=tf.float32)
+            dp_mask = tf.nn.dropout(ones, rate=self.encoder_dp_rate)
+            dp_mask = tf.cast(tf.cast(dp_mask, tf.bool), tf.float32) # proper zeros and ones
+            dropped_flat = tf.multiply(flattened_batch, tf.expand_dims(dp_mask, axis=1)) # axis is 1 because we still haven't restored the number of train examples in a batch
+            dropped_out_ragged = tf.RaggedTensor.from_row_starts(dropped_flat, row_starts)
+            return dropped_out_ragged
+
+        ret = tf.cond(tf.convert_to_tensor(training),
+                      dropped_embedding,
+                      lambda: array_ops.identity(inputs))
+        return ret
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
+        return cfg
+
+
