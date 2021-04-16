@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import LSTMCell
-from awdlstm_tf2 import WeightDropLSTMCell
+from .awdlstm_tf2 import WeightDropLSTMCell
 
 VOCAB_SIZE=35000
 MAX_SEQ_LEN=70

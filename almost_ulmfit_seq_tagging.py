@@ -1,7 +1,8 @@
-from almost_ulmfit_tf2 import almost_ulmfit_model
+import tensorflow as tf
+from .almost_ulmfit_tf2 import almost_ulmfit_model
 
 
-def ulmfit_quick_and_dirty_sequence_tagger(num_classes=3, pretrained_weights='wagi'):
+def ulmfit_quick_and_dirty_sequence_tagger(*, num_classes=3, pretrained_weights='wagi'):
     print("Building model from Python code (not tf.saved_model)...")
     au = almost_ulmfit_model()
     print("Restoring weights from file....")
