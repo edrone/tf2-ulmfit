@@ -23,8 +23,8 @@ def almost_ulmfit_model(fixed_seq_len=None):
     #AWD_LSTM_Cell2 = WeightDropLSTMCell(1150, kernel_initializer='glorot_uniform', weight_dropout=0.5)
     #AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
 
-    AWD_LSTM_Cell1 = LSTMCell(1150, kernel_initializer='glorot_uniform')
-    AWD_LSTM_Cell2 = LSTMCell(1150, kernel_initializer='glorot_uniform')
+    AWD_LSTM_Cell1 = LSTMCell(1152, kernel_initializer='glorot_uniform')
+    AWD_LSTM_Cell2 = LSTMCell(1152, kernel_initializer='glorot_uniform')
     AWD_LSTM_Cell3 = LSTMCell(400, kernel_initializer='glorot_uniform')
     if fixed_seq_len is None:
         il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
@@ -38,19 +38,22 @@ def almost_ulmfit_model(fixed_seq_len=None):
                                      name="ulmfit_embeds")
     if fixed_seq_len is None:
         encoder_dropout = RaggedEmbeddingDropout(encoder_dp_rate=0.4, name="ragged_emb_dropout")
+        SpatialDrop1DLayer = RaggedSpatialDropout1D
+        layer_name_prefix="ragged_"
     else:
         encoder_dropout = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")
-    # ;STAD - ponizsze tez bedzie do zaorania z zalozeniem, ze przychodzi ragged tensor
-    input_dropout = tf.keras.layers.SpatialDropout1D(0.4, name="inp_dropout")
+        SpatialDrop1DLayer = tf.keras.layers.SpatialDropout1D
+        layer_name_prefix=""
+    input_dropout = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}inp_dropout")
 
     rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
-    rnn1_drop = tf.keras.layers.SpatialDropout1D(0.3, name="rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
+    rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
 
     rnn2 = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")
-    rnn2_drop = tf.keras.layers.SpatialDropout1D(0.3, name="rnn_drop2")
+    rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
 
     rnn3 = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")
-    rnn3_drop = tf.keras.layers.SpatialDropout1D(0.4, name="rnn_drop3")
+    rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
 
 
     m = tf.keras.models.Sequential()
@@ -133,6 +136,9 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
         cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
         return cfg
 
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
 
 @tf.keras.utils.register_keras_serializable()
 class EmbeddingDropout(tf.keras.layers.Layer):
@@ -174,6 +180,10 @@ class EmbeddingDropout(tf.keras.layers.Layer):
         cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
         return cfg
 
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
+
 @tf.keras.utils.register_keras_serializable()
 class TiedDense(tf.keras.layers.Layer):
     def __init__(self, reference_layer, activation, **kwargs):
@@ -207,6 +217,10 @@ class TiedDense(tf.keras.layers.Layer):
         cfg = super().get_config()
         cfg.update({'reference_layer': self.ref_layer, 'activation': self.activation_fn})
         return cfg
+
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
 
 @tf.keras.utils.register_keras_serializable()
 class CustomMaskableEmbedding(tf.keras.layers.Embedding):
@@ -242,12 +256,16 @@ class CustomMaskableEmbedding(tf.keras.layers.Embedding):
         cfg.update({'mask_value': self.mask_value})
         return cfg
 
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
+
 @tf.keras.utils.register_keras_serializable()
 class RaggedSpatialDropout1D(tf.keras.layers.Layer):
-    def __init__(self, dp_rate, **kwargs):
-        super(RaggedEmbeddingDropout, self).__init__(**kwargs)
+    def __init__(self, rate, **kwargs):
+        super(RaggedSpatialDropout1D, self).__init__(**kwargs)
         self.trainable = False
-        self.dp_rate = dp_rate
+        self.rate = rate
         self.supports_masking = True
         self.bsize = None
         self._supports_ragged_inputs = True # for compatibility with TF 2.2
@@ -260,7 +278,7 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
         if training is None:
             training = tf.keras.backend.learning_phase()
 
-        def dropped_1d(): #; STAD
+        def dropped_1d():
             """ Spatial 1D dropout which operates on ragged tensors """
             flattened_batch = inputs.flat_values # inputs is a ragged tensor
             row_starts = inputs.row_starts() # size = batch size
@@ -268,15 +286,15 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
             # bsize = tf.shape(inputs)[0]
             # seq_len = tf.shape(inputs)[1]
             tf.print(f"{tf.shape(flattened_batch)}")
-            ones = tf.ones((tf.shape(flattened_batch)[0],), dtype=tf.float32)
-            dp_mask = tf.nn.dropout(ones, rate=self.encoder_dp_rate)
+            ones = tf.ones((tf.shape(flattened_batch)[1],), dtype=tf.float32)
+            dp_mask = tf.nn.dropout(ones, rate=self.rate)
             dp_mask = tf.cast(tf.cast(dp_mask, tf.bool), tf.float32) # proper zeros and ones
-            dropped_flat = tf.multiply(flattened_batch, tf.expand_dims(dp_mask, axis=1)) # axis is 1 because we still haven't restored the number of train examples in a batch
+            dropped_flat = tf.multiply(flattened_batch, tf.expand_dims(dp_mask, axis=0)) # axis is 0 this time
             dropped_out_ragged = tf.RaggedTensor.from_row_starts(dropped_flat, row_starts)
             return dropped_out_ragged
 
         ret = tf.cond(tf.convert_to_tensor(training),
-                      dropped_embedding,
+                      dropped_1d,
                       lambda: array_ops.identity(inputs))
         return ret
 
@@ -285,7 +303,10 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
 
     def get_config(self):
         cfg = super().get_config()
-        cfg.update({'encoder_dp_rate': self.encoder_dp_rate})
+        cfg.update({'rate': self.rate})
         return cfg
 
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
 
