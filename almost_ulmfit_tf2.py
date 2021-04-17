@@ -90,6 +90,13 @@ def almost_ulmfit_model(fixed_seq_len=None):
     return m
 
 
+class RaggedSparseCategoricalCrossEntropy(tf.keras.losses.SparseCategoricalCrossentropy):
+    def __init__(self, from_logits=False, reduction='auto'):
+        super().__init__(from_logits=from_logits, reduction=reduction)
+
+    def call(self, y_true, y_pred):
+        return super().call(y_true.flat_values, y_pred.flat_values)
+
 @tf.keras.utils.register_keras_serializable()
 class RaggedEmbeddingDropout(tf.keras.layers.Layer):
     def __init__(self, encoder_dp_rate, **kwargs):
