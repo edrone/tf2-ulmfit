@@ -28,22 +28,26 @@ def almost_ulmfit_model(fixed_seq_len=None):
     AWD_LSTM_Cell3 = LSTMCell(400, kernel_initializer='glorot_uniform')
     if fixed_seq_len is None:
         il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
-    else:
-        il = tf.keras.layers.Input(shape=(fixed_seq_len,), dtype=tf.int32)
-    embedz = CustomMaskableEmbedding(VOCAB_SIZE,
-                                     400,
-                                     embeddings_initializer=uniform_initializer,
-                                     mask_zero=False,
-                                     mask_value=1,
-                                     name="ulmfit_embeds")
-    if fixed_seq_len is None:
+        embedz = CustomMaskableEmbedding(VOCAB_SIZE,
+                                         400,
+                                         embeddings_initializer=uniform_initializer,
+                                         mask_zero=False,
+                                         name="ulmfit_embeds")
         encoder_dropout = RaggedEmbeddingDropout(encoder_dp_rate=0.4, name="ragged_emb_dropout")
         SpatialDrop1DLayer = RaggedSpatialDropout1D
         layer_name_prefix="ragged_"
     else:
+        il = tf.keras.layers.Input(shape=(fixed_seq_len,), dtype=tf.int32)
+        embedz = CustomMaskableEmbedding(VOCAB_SIZE,
+                                         400,
+                                         embeddings_initializer=uniform_initializer,
+                                         mask_zero=False,
+                                         mask_value=1,
+                                         name="ulmfit_embeds")
         encoder_dropout = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")
         SpatialDrop1DLayer = tf.keras.layers.SpatialDropout1D
         layer_name_prefix=""
+
     input_dropout = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}inp_dropout")
 
     rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
@@ -78,11 +82,12 @@ def almost_ulmfit_model(fixed_seq_len=None):
 
     # TODO:
     # 1) [DONE] Weight tying
-    # 1) [DONE] use 1, not 0 for mask/pad
-    # 2) One-cycle policy,
-    # 3) Optionally the tokenizer as module,
-    # 4) Heads for finetuning LM + Head for text classification
-    # 5) Cross-batch statefulness
+    # 2) [DONE] use 1, not 0 for mask/pad
+    # 2b) Include trainable into default signature when exporting a fixed-length Keras model
+    # 3) One-cycle policy,
+    # 4) Optionally the tokenizer as module,
+    # 5) Heads for finetuning LM + Head for text classification
+    # 6) Cross-batch statefulness
 
     #lm_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(VOCAB_SIZE, activation='linear', name="LM_Head"))(rnn3_drop)
     #lm_head_drop = tf.keras.layers.Dropout(0.2)(lm_head)
@@ -198,6 +203,7 @@ class TiedDense(tf.keras.layers.Layer):
         self.biases = None
         self.activation_fn = tf.keras.activations.get(activation)
         super().__init__(**kwargs)
+        self._supports_masking = self.supports_masking = True
 
     def build(self, input_shape):
         #self.biases = self.add_weight(name='tied_bias',
@@ -252,6 +258,9 @@ class CustomMaskableEmbedding(tf.keras.layers.Embedding):
                          embeddings_constraint=embeddings_constraint,
                          input_length=input_length, **kwargs)
         self.mask_value=mask_value
+        if self.mask_value is not None:
+            self._supports_masking = True
+            self.supports_masking = True
 
     def compute_mask(self, inputs, mask=None):
         if not self.mask_value:
