@@ -1,4 +1,7 @@
 import tensorflow as tf
+import sentencepiece as spm
+import tensorflow_text as text
+from tensorflow.keras.preprocessing.sequence import pad_sequences # TODO: get rid of this dependency maybe using tf.pad?
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import LSTMCell
@@ -14,7 +17,7 @@ MAX_SEQ_LEN=70
 # au.save('nietrasowany', save_traces=False)
 
 
-def almost_ulmfit_model(fixed_seq_len=None):
+def almost_ulmfit_model(fixed_seq_len=None, spm_model_file=None):
 
     # layer initializers as per the AWD-LSTM paper
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None)
@@ -27,7 +30,16 @@ def almost_ulmfit_model(fixed_seq_len=None):
     AWD_LSTM_Cell2 = LSTMCell(1152, kernel_initializer='glorot_uniform')
     AWD_LSTM_Cell3 = LSTMCell(400, kernel_initializer='glorot_uniform')
     if fixed_seq_len is None:
-        il = tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)
+        if spm_model_file is None:
+            il = tf.keras.layers.Input(shape=(None,), dtype=tf.int32, ragged=True)
+            print("TEN1")
+        else:
+            print(">>>> PROTOCOL!!! <<<")
+            spm_as_proto = spm.SentencePieceProcessor(spm_model_file).serialized_model_proto()
+            il = SPMNumericalizer(input_shape=(1,), spm_as_proto=spm_as_proto,
+                                  fixedlen=None,
+                                  dtype=tf.string, name="spm_numericalizer")
+            print("TEN2")
         embedz = CustomMaskableEmbedding(VOCAB_SIZE,
                                          400,
                                          embeddings_initializer=uniform_initializer,
@@ -37,7 +49,13 @@ def almost_ulmfit_model(fixed_seq_len=None):
         SpatialDrop1DLayer = RaggedSpatialDropout1D
         layer_name_prefix="ragged_"
     else:
-        il = tf.keras.layers.Input(shape=(fixed_seq_len,), dtype=tf.int32)
+        if spm_model_file is None:
+            il = tf.keras.layers.Input(shape=(1,), dtype=tf.int32, ragged=True)
+            print("TEN3")
+        else:
+            spm_as_proto = spm.SentencePieceProcessor(spm_model_file).serialized_model_proto()
+            il = SPMNumericalizer(input_shape=(1,), spm_as_proto=spm_as_proto, fixedlen=fixed_seq_len, dtype=tf.string, name="spm_numericalizer")
+            print("TEN4")
         embedz = CustomMaskableEmbedding(VOCAB_SIZE,
                                          400,
                                          embeddings_initializer=uniform_initializer,
@@ -94,6 +112,51 @@ def almost_ulmfit_model(fixed_seq_len=None):
     #model = tf.keras.models.Model(inputs=il, outputs=lm_head_drop, name="ULMFit Pretraining/Finetuning: TF 2.0 implementation")
     return m
 
+# @tf.keras.utils.register_keras_serializable()
+class SPMNumericalizer(tf.keras.layers.Layer):
+    def __init__(self, input_shape=None, name=None, dtype=None, spm_as_proto=None, fixedlen=None, pad_value=1, **kwargs):
+        self.spm_as_proto = spm_as_proto
+        self.spmproc = text.SentencepieceTokenizer(self.spm_as_proto)
+        self.fixedlen = fixedlen
+        self.pad_value = pad_value
+        super().__init__(input_shape=input_shape, name=name, dtype=dtype, **kwargs)
+        self.trainable = False
+        # self.supports_masking = False if fixedlen is None else True
+        # self._supports_ragged_inputs = True # for compatibility with TF 2.2
+
+    def build(self, input_shape):
+        print(f">>>> INSIDE BUILD / SPMTOK <<<< {input_shape} ")
+        super().build(input_shape)
+
+    def call(self, inputs, training=None):
+        ret = self.spmproc.tokenize(inputs)
+        if self.fixedlen is not None:
+            ret = tf.squeeze(ret, axis=1)
+            ret_padded = ret.to_tensor(self.pad_value)
+            ret_padded = tf.pad(ret_padded, tf.constant([[0,0,], [0,self.fixedlen,]]), constant_values=self.pad_value)
+            ret_padded = ret_padded[:, :self.fixedlen]
+            return ret_padded
+        else:
+            return tf.squeeze(ret, axis=1)
+
+    # def compute_output_shape(self, input_shape):
+    #     tf.print(f"INPUT SHAPE IS {input_shape}")
+    #     if self.fixedlen is None:
+    #         return tf.TensorShape(input_shape[0], None)
+    #         #return (input_shape[0], None)
+    #     else:
+    #         return tf.TensorShape([input_shape[0], self.fixedlen])
+    #         #return (input_shape[0], self.fixedlen)
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'spm_as_proto': self.spm_as_proto, 'fixedlen': self.fixedlen,
+                    'pad_value': self.pad_value})
+        return cfg
+
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
 
 class RaggedSparseCategoricalCrossEntropy(tf.keras.losses.SparseCategoricalCrossentropy):
     def __init__(self, from_logits=False, reduction='auto'):
