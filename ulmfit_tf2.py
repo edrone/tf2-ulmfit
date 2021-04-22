@@ -213,11 +213,14 @@ class ExportableULMFiT(tf.keras.Model):
 
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
-    def __init__(self, name=None, spm_path=None, fixedlen=None, pad_value=1, **kwargs):
+    def __init__(self, name=None, spm_path=None, fixedlen=None,
+                 pad_value=1, add_bos=False, add_eos=False, **kwargs):
         self.spm_path = spm_path
+        self.add_bos = add_bos
+        self.add_eos = add_eos
         self.spm_asset = tf.saved_model.Asset(self.spm_path)
         self.spm_proto = tf.io.read_file(self.spm_asset).numpy()
-        self.spmproc = text.SentencepieceTokenizer(self.spm_proto)
+        self.spmproc = text.SentencepieceTokenizer(self.spm_proto, add_bos=self.add_bos, add_eos=self.add_eos)
         self.fixedlen = fixedlen
         self.pad_value = pad_value
         super().__init__(name=name, **kwargs)
@@ -249,8 +252,11 @@ class SPMNumericalizer(tf.keras.layers.Layer):
 
     def get_config(self):
         cfg = super().get_config()
-        cfg.update({'spm_path': self.spm_path, 'fixedlen': self.fixedlen,
-                    'pad_value': self.pad_value})
+        cfg.update({'spm_path': self.spm_path,
+                    'fixedlen': self.fixedlen,
+                    'pad_value': self.pad_value,
+                    'add_bos': self.add_bos,
+                    'add_eos': self.add_eos})
         return cfg
 
     @classmethod
