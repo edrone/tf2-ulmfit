@@ -108,13 +108,12 @@ def save_as_keras(state_dict, args):
 
     import tensorflow as tf
     kmodel = tf.keras.models.Sequential()
-    kmodel.add(tf.keras.layers.Input((args['max_seq_len'], )))
-    kmodel.add(tf.keras.layers.Embedding(args['vocab_size'], 400, input_length=args['max_seq_len'],
-                                          name='ulmfit_embedz'))
+    kmodel.add(tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)) # ragged tensors = variable input length!
+    kmodel.add(tf.keras.layers.Embedding(args['vocab_size'], 400, name='ulmfit_embedz'))
     kmodel.add(tf.keras.layers.LSTM(1152, return_sequences=True, name='ulmfit_lstm1'))
     kmodel.add(tf.keras.layers.LSTM(1152, return_sequences=True, name='ulmfit_lstm2'))
     kmodel.add(tf.keras.layers.LSTM(400, return_sequences=True, name='ulmfit_lstm3'))
-    kmodel.add(tf.keras.layers.Dense(args['vocab_size'], activation='linear', name='lm_head')) # originally: linear
+    kmodel.add(tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(args['vocab_size'], activation='linear'), name='lm_head')) # originally: linear
 
     kmodel.get_layer('ulmfit_embedz').set_weights([state_dict['0.encoder.weight'].cpu().numpy()])
     kmodel.get_layer('ulmfit_lstm1').set_weights([state_dict['0.rnns.0.module.weight_ih_l0'].cpu().numpy().T,
