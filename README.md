@@ -26,6 +26,83 @@ python ./04_demo.py --pretrained-model ${HDF5} \
                     --max-seq-len 80
 ```
 
+## How to run a sequence tagging demo?
+
+You will need:
+
+* a pretrained model checkpoint files from s3://prod-edrone-ava/AVA-sandbox_resources/lm_recurrent/phuabc-ulmfit-tagger-demo
+* a sentencepiece vocabulary model (plwiki100-sp35k.model) - from the same location
+
+```
+export TAGGER_CKPT=../resources/lm_recurrent/phuabc-ulmfit-tagger-demo/phu_1epoka
+export WIKI100_SPM=../resources/lm_recurrent/phuabc-ulmfit-tagger-demo/plwiki100-sp35k.model
+python ./ulmfit_tf_seqtagger.py \
+       --model-weights-cp ${TAGGER_CKPT} \
+       --spm-model-file ${WIKI100_SPM} \
+       --interactive
+```
+
+There will be a couple of warnings about checkpoints being resolved to different objects - they are safe to ignore (we'll fix them later). Once the model loads, you will see its architecture and there will be a sentence input prompt:
+
+```
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #
+=================================================================
+ragged_numericalized_input ( [(None, None)]            0
+_________________________________________________________________
+ulmfit_embeds (CustomMaskabl (None, None, 400)         14000000
+_________________________________________________________________
+ragged_emb_dropout (RaggedEm (None, None, 400)         0
+_________________________________________________________________
+ragged_inp_dropout (RaggedSp (None, None, 400)         0
+_________________________________________________________________
+AWD_RNN1 (RNN)               (None, None, 1152)        7156224
+_________________________________________________________________
+ragged_rnn_drop1 (RaggedSpat (None, None, 1152)        0
+_________________________________________________________________
+AWD_RNN2 (RNN)               (None, None, 1152)        10621440
+_________________________________________________________________
+ragged_rnn_drop2 (RaggedSpat (None, None, 1152)        0
+_________________________________________________________________
+AWD_RNN3 (RNN)               (None, None, 400)         2484800
+_________________________________________________________________
+ragged_rnn_drop3 (RaggedSpat (None, None, 400)         0
+_________________________________________________________________
+time_distributed (TimeDistri (None, None, 3)           1203      
+=================================================================
+Total params: 34,263,667
+Trainable params: 34,263,667
+Non-trainable params: 0
+_________________________________________________________________
+Write a sentence to tag:
+```
+You can now try out some typical sentences alluding to descriptions of products typically found in a hardware shop:
+
+```
+Write a sentence to tag: Jak masz chęć to se wkręć śrubkę o średnicy numer pięć.
+<s>               O
+▁Jak              O
+▁masz             O
+▁chęć             O
+▁to               O
+▁se               O
+▁w                O
+krę               O
+ć                 O
+▁śru              O
+b                 O
+kę                O
+▁o                O
+▁średnicy       B-N
+▁numer            O
+▁pięć             O
+.                 O
+</s>              O
+```
+
+## How to train a sequence tagger?
+
+[WIP]
 
 ## How to evaluate a pretrained model's perplexity?
 
@@ -64,3 +141,4 @@ python ./evaluate_ppl.py --corpus-path ${TEST_IDS} \
                          --is-pretokenized
 ```
 Note: perplexity evaluations are slow because you need to softmax over the entire vocabulary as many number of times as there are tokens. Make sure to run them on a sample of ~10k sentences, not more.
+
