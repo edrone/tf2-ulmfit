@@ -6,7 +6,7 @@ from tensorflow.keras.layers import LSTMCell
 from .awdlstm_tf2 import WeightDropLSTMCell
 
 VOCAB_SIZE=35000
-MAX_SEQ_LEN=100
+MAX_SEQ_LEN=200
 
 # TODO:
 # 1) [DONE] Weight tying
@@ -93,7 +93,6 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
         layer_name_prefix=""
 
     input_dropout = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}inp_dropout")
-
 
     ###### STAGE 2 - RECURRENT LAYERS ######
 
@@ -303,9 +302,13 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
             dropped_out_ragged = tf.RaggedTensor.from_row_starts(dropped_flat, row_starts)
             return dropped_out_ragged
 
-        ret = tf.cond(tf.convert_to_tensor(training),
-                      dropped_embedding,
-                      lambda: array_ops.identity(inputs))
+        #ret = tf.cond(tf.convert_to_tensor(training),
+        #              dropped_embedding,
+        #              lambda: array_ops.identity(inputs))
+        if training:
+            ret = dropped_embedding()
+        else:
+            ret = array_ops.identity(inputs)
         return ret
 
     def compute_output_shape(self, input_shape):
@@ -347,9 +350,13 @@ class EmbeddingDropout(tf.keras.layers.Layer):
             dropped = inputs * tf.expand_dims(dp_mask, axis=2)
             return dropped
 
-        ret = tf.cond(tf.convert_to_tensor(training),
-                      dropped_embedding,
-                      lambda: array_ops.identity(inputs))
+        # ret = tf.cond(tf.convert_to_tensor(training),
+        #               dropped_embedding,
+        #               lambda: array_ops.identity(inputs))
+        if training:
+            ret = dropped_embedding()
+        else:
+            ret = array_ops.identity(inputs)
         return ret
 
     def compute_output_shape(self, input_shape):
@@ -409,9 +416,9 @@ class TiedDense(tf.keras.layers.Layer):
 
 @tf.keras.utils.register_keras_serializable()
 class ExplicitMaskGenerator(tf.keras.layers.Layer):
-    """ Enhancement of TF's embedding layer where you can set the custom
-        value for the mask token, not just zero. SentencePiece uses 1 for <pad>
-        and 0 for <unk> and ULMFiT has adopted this convention too.
+    """ Explicitly return the propagated mask.
+
+        This is useful after serialization where the original _keras_mask object is no longer available.
     """
     def __init__(self, mask_value=None, **kwargs):
         super().__init__(**kwargs)
@@ -512,9 +519,13 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
             dropped_out_ragged = tf.RaggedTensor.from_row_starts(dropped_flat, row_starts)
             return dropped_out_ragged
 
-        ret = tf.cond(tf.convert_to_tensor(training),
-                      dropped_1d,
-                      lambda: array_ops.identity(inputs))
+        # ret = tf.cond(tf.convert_to_tensor(training),
+        #               dropped_1d,
+        #               lambda: array_ops.identity(inputs))
+        if training:
+            ret = dropped_1d()
+        else:
+            ret = array_ops.identity(inputs)
         return ret
 
     def compute_output_shape(self, input_shape):
