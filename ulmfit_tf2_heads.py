@@ -4,9 +4,9 @@ from .awdlstm_tf2 import *
 from .ulmfit_tf2 import *
 
 def ulmfit_sequence_tagger(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None, spm_model_file,
-                              also_return_spm_encoder=False):
+                              also_return_spm_encoder=False, use_awd=True):
     print("Building model from Python code (not tf.saved_model)...")
-    _ , enc_num, _, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, spm_model_file=spm_model_file)
+    _ , enc_num, _, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, spm_model_file=spm_model_file, use_awd=use_awd)
     if pretrained_weights is not None:
         print("Restoring weights from file....")
         enc_num.load_weights(pretrained_weights)

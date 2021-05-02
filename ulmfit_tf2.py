@@ -5,8 +5,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import LSTMCell
 from .awdlstm_tf2 import WeightDropLSTMCell
 
-VOCAB_SIZE=35000
-MAX_SEQ_LEN=200
+# MAX_SEQ_LEN=512
 
 # TODO:
 # 1) [DONE] Weight tying
@@ -17,7 +16,7 @@ MAX_SEQ_LEN=200
 # 5) [DONE] Heads for finetuning LM + Head for text classification
 # 6) [WON'T DO] Cross-batch statefulness
 
-def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
+def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
     """ This function reconstructs an ULMFiT as a model trainable in Keras. If `fixed_seq_len` is None,
         it uses RaggedTensors. Otherwise it sets a fixed sequence length on inputs and uses 1 (not zero!)
         for padding. As of TF 2.4.1 only the fixed-length version is serializable into a SavedModel.
@@ -46,7 +45,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
                       for working with some signatures in the serialized version.
 
   spm_encoder_model - the numericalizer. Accepts a string and outputs its sentencepiece representation. The SPM model
-                      must be trained externally and a path needs to be provided in `spm_model_file` (it is also serialized
+                      must be trained externally and a path needs to be provided in `spm_args{'spm_model_file'}` (it is also serialized
                       as a tf.saved_model.Asset). In a fixed length setting, this layer TRUNCATES the text
                       if it's longer than fixed_seq_len tokens and AUTOMATICALLY ADDS PADDING WITH A VALUE OF 1 if needed.
     """
@@ -55,15 +54,20 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None) # initializer for embeddings
     if fixed_seq_len is None:
         string_input_layer = tf.keras.layers.Input(shape=(None,), dtype=tf.string, ragged=True, name="ragged_string_input")
-        numericalized_layer = SPMNumericalizer(spm_path=spm_model_file,
-                                               fixedlen=None,
-                                               name="ragged_spm_numericalizer")(string_input_layer)
-        print(f"Building an ULMFiT model with RaggedTensors. THIS IS NOT SERIALIZABLE TO a SavedModel as of TF 2.4.x - some promises " \
-              f"to fix this were made as of version 2.5.0, so please check in the future. Save weights to a checkpoint " \
+        spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
+                                     add_bos=spm_args.get('add_bos') or False,
+                                     add_eos=spm_args.get('add_eos') or False,
+                                     fixedlen=None,
+                                     lumped_sents_separator=spm_args.get('lumped_sents_separator') or False,
+                                     name="ragged_spm_numericalizer")(string_input_layer)
+        vocab_size = spm_layer.spmproc.vocab_size().numpy()
+        numericalized_layer = spm_layer(string_input_layer)
+        print(f"Building an ULMFiT model with: \n1) a variable sequence and RaggedTensors\n2) a vocabulary size of {vocab_size}.")
+        print(f"NOTE: THIS MODEL IS NOT SERIALIZABLE TO a SavedModel as of TF 2.4.x because of RaggedTensors. Some promises " \
+              f"to fix this were made around version 2.5.0, so please check in the future. Save weights to a checkpoint " \
               f"instead and restore them with model.load_weights using Python code. If you need proper serialization, build" \
-              f"a model with a fixed sequence length (if {fixed_seq_len} != {MAX_SEQ_LEN}), please adjust this either in function call " \
-              f"or in code).")
-        embedz = CustomMaskableEmbedding(VOCAB_SIZE,
+              f"a model with a fixed sequence length.")
+        embedz = CustomMaskableEmbedding(vocab_size,
                                          400,
                                          embeddings_initializer=uniform_initializer,
                                          mask_zero=False,
@@ -73,16 +77,16 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
         layer_name_prefix="ragged_"
     else:
         string_input_layer = tf.keras.layers.Input(shape=(1,), dtype=tf.string, name="fixedlen_string_input")
-        numericalized_layer = SPMNumericalizer(spm_path=spm_model_file,
-                                                   fixedlen=fixed_seq_len,
-                                                   name="spm_numericalizer")(string_input_layer)
-        print(f"Building an ULMFiT model with a fixed sequence length of {fixed_seq_len}.")
-        if fixed_seq_len != MAX_SEQ_LEN:
-            print(">>>>>>>>> WARNING, WARNING, WARNING! <<<<<<<<<<<<< ")
-            print(f"Please make sure fixed_seq_len parameter ({fixed_seq_len}) and the constant MAX_SEQ_LEN declared in the code " \
-                  f"are equal. If you are happy with just saving checkpoints or model.save('...'), you can probably ignore this, " \
-                  f"but you won't be able to build the version exportable to TFHub / SavedModel")
-        embedz = CustomMaskableEmbedding(VOCAB_SIZE,
+        spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
+                                     fixedlen=fixed_seq_len,
+                                     add_bos=spm_args.get('add_bos') or False,
+                                     add_eos=spm_args.get('add_eos') or False,
+                                     lumped_sents_separator=spm_args.get('lumped_sents_separator') or False,
+                                     name="spm_numericalizer")
+        vocab_size = spm_layer.spmproc.vocab_size().numpy()
+        numericalized_layer = spm_layer(string_input_layer)
+        print(f"Building an ULMFiT model with: \n1) a fixed sequence length of {fixed_seq_len}\n2) a vocabulary size of {vocab_size}.")
+        embedz = CustomMaskableEmbedding(vocab_size,
                                          400,
                                          embeddings_initializer=uniform_initializer,
                                          mask_zero=False,
@@ -96,18 +100,29 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, spm_model_file=None):
 
     ###### STAGE 2 - RECURRENT LAYERS ######
 
-    # AWD LSTM cells as per the said paper
-    AWD_LSTM_Cell1 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-    rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
-    rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
+    if use_awd:
+        # AWD LSTM cells as per the said paper
+        AWD_LSTM_Cell1 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+        rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
+        rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
 
-    AWD_LSTM_Cell2 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-    rnn2 = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")
-    rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
+        AWD_LSTM_Cell2 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+        rnn2 = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")
+        rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
 
-    AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-    rnn3 = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")
-    rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
+        AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+        rnn3 = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")
+        rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
+    else:
+        # Plain (TF optimized) LSTM cells
+        rnn1 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM1")
+        rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
+
+        rnn2 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM2")
+        rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
+
+        rnn3 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM3")
+        rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
 
 
     ###### BASIC MODEL: From a numericalized input to RNN encoder vectors ######
@@ -151,10 +166,10 @@ class ExportableULMFiT(tf.keras.Model):
     lm_num, enc_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_model_file='plwiki100-sp35k.model', fixed_seq_len=100)
     tf.keras.backend.set_learning_phase(0) # very important!!! do not skip!
     exportable = ExportableULMFiT(lm_model_num, encoder_num, outmask_num, spm_encoder_model)
-    convenience_signatures={'numericalized_fixed_len': exported.fixed_len_numericalized,
-                            'string_fixed_len': exported.fixed_len_string,
-                            'numericalizer': exported.numericalizer}
-    tf.saved_model.save(exported, 'ulmfit_tf2', signatures=convenience_signatures)
+    convenience_signatures={'numericalized_fixed_len': exportable.fixed_len_numericalized,
+                            'string_fixed_len': exportable.fixed_len_string,
+                            'numericalizer': exportable.numericalizer}
+    tf.saved_model.save(exportable, 'ulmfit_tf2', signatures=convenience_signatures)
 
 
     Deserialization (you don't need any Python code and it really works with all the custom tweaks!):
@@ -183,7 +198,7 @@ class ExportableULMFiT(tf.keras.Model):
     """
 
     def __init__(self, lm_model_num, encoder_num, outmask_num, spm_encoder_model):
-        super().__init__(self)
+        super().__init__()
         self.lm_model_num = lm_model_num
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
@@ -193,35 +208,113 @@ class ExportableULMFiT(tf.keras.Model):
         self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
         self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
 
-    @tf.function(input_signature=[tf.TensorSpec([None, MAX_SEQ_LEN], dtype=tf.int32)])
-    def fixed_len_numericalized(self, numericalized):
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    def __call__(self, x):
+        return self.string_encoder(x)
+
+    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    def numericalized_lm_head(self, numericalized):
         # return {'lm_head': self.lm_model(numericalized)}
-        return {'lm_head': self.lm_model_num(numericalized),
-                 'encoder': self.encoder_num(numericalized),
-                 'explicit_mask': self.masker_num(numericalized)}
+        return {'lm_head': self.lm_model_num(numericalized)}
 
-    @tf.function(input_signature=[tf.TensorSpec([None, 1], dtype=tf.string)])
-    def fixed_len_string(self, string_inputs):
-        return {'lm_head': self.lm_model_str(string_inputs),
-                 'encoder': self.encoder_str(string_inputs),
-                 'explicit_mask': self.masker_str(string_inputs)}
+    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    def numericalized_encoder(self, numericalized):
+        return self.encoder_num(numericalized)
 
-    @tf.function(input_signature=[tf.TensorSpec((None, 1), dtype=tf.string)])
+    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    def numericalized_explicit_mask(self, numericalized):
+        # return {'lm_head': self.lm_model_num(numericalized),
+        #          'encoder': self.encoder_num(numericalized),
+        #          'explicit_mask': self.masker_num(numericalized)}
+        return self.masker_num(numericalized)
+
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    def string_lm_head(self, string_inputs):
+        return self.lm_model_str(string_inputs)
+
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    def string_encoder(self, string_inputs):
+        return self.encoder_str(string_inputs)
+
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    def string_explicit_mask(self, string_inputs):
+        return self.masker_str(string_inputs)
+
+        #return {'lm_head': self.lm_model_str(string_inputs),
+        #         'encoder': self.encoder_str(string_inputs),
+        #         'explicit_mask': self.masker_str(string_inputs)}
+
+
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def numericalizer(self, string_inputs):
-        return {'numericalized': self.spm_encoder_model(string_inputs)}
+        return self.spm_encoder_model(string_inputs)
+
+    @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
+    def spm_set_sentence_separator(self, sep):
+        """ Insert additional <s> and </s> tokens between sentences in a single training example.
+
+            This can be useful if working with short documents on which
+            for some reason the model performs better if they are sentence-tokenized.
+            
+            The `sep` symbol is a separator by which each input example is split and
+            surrounded by <s>...</s> tokens (only if `add_bos` and `add_eos` options
+            for the SPMNumericalizer were set to True). For example, this input:
+
+            The cat sat on a mat. [SEP] And spat.
+
+            can be encoded as:
+            <s> The cat sat on a mat. </s> <s> And spat. </s>
+        """
+        self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
+
+    @tf.function(input_signature=[])
+    def spm_unset_sentence_separator(self):
+        self.spm_encoder_model.layers[1].lumped_sents_separator.assign("")
+
+    # @tf.function(input_signature=[tf.TensorSpec((1,), dtype=tf.int32)])
+    # def amend_sequence_length(self, new_length):
+    #     new_input_layer = tf.keras.layers.Input((new_length.eval(),), dtype=tf.int32)
+    #     self.lm_model_num = tf.keras.models.Sequential([new_input_layer] + self.lm_model_num.layers[1:])
+    #     self.encoder_num = tf.keras.models.Sequential([new_input_layer] + self.encoder_num.layers[1:])
+    #     self.masker_num = tf.keras.models.Sequential([new_input_layer] + self.masker_num.layers[1:])
+
+    #     new_textual_input = tf.keras.layers.Input((1,), dtype=tf.string32)
+    #     self.spm_encoder_model = tf.keras.models.Sequential([new_textual_input,
+    #                             SPMNumericalizer(spm_path=self.spm_asset, fixedlen=new_length, add_bos=True, add_eos=True)])
+    #     #;STAD
+    #     self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
+    #     self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
+    #     self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
+
+
+#class ExperimentalClass(tf.keras.Model):
+#    def __init__(self, lm_model_num, spm_args):
+#        pass
+#
+#    @tf.function(input_signature=[tf.TensorSpec([None, MAX_SEQ_LEN], dtype=tf.int32)])
+#    def fixed_len_numericalized(self, numericalized):
+#        # return {'lm_head': self.lm_model(numericalized)}
+#        return {'lm_head': self.lm_model_num(numericalized),
+#                 'encoder': self.encoder_num(numericalized),
+#                 'explicit_mask': self.masker_num(numericalized)}
 
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
     def __init__(self, name=None, spm_path=None, fixedlen=None,
-                 pad_value=1, add_bos=False, add_eos=False, **kwargs):
+                 pad_value=1, add_bos=False, add_eos=False, lumped_sents_separator="", **kwargs):
         self.spm_path = spm_path
         self.add_bos = add_bos
         self.add_eos = add_eos
-        self.spm_asset = tf.saved_model.Asset(self.spm_path)
+        if isinstance(spm_path, tf.saved_model.Asset):
+            self.spm_asset = spm_path
+        else:
+            self.spm_asset = tf.saved_model.Asset(self.spm_path)
         self.spm_proto = tf.io.read_file(self.spm_asset).numpy()
         self.spmproc = text.SentencepieceTokenizer(self.spm_proto, add_bos=self.add_bos, add_eos=self.add_eos)
         self.fixedlen = fixedlen
         self.pad_value = pad_value
+        #self.lumped_sents_separator = tf.Variable(lumped_sents_separator, name="spm_sent_sep")
+        self.lumped_sents_separator = tf.Variable(lumped_sents_separator, name="spm_sent_sep")
         super().__init__(name=name, **kwargs)
         self.trainable = False
 
@@ -229,10 +322,18 @@ class SPMNumericalizer(tf.keras.layers.Layer):
         print(f">>>> INSIDE BUILD / SPMTOK <<<< {input_shape} ")
         super().build(input_shape)
 
+    @tf.function
     def call(self, inputs, training=None):
-        ret = self.spmproc.tokenize(inputs)
-        if self.fixedlen is not None:
+        if tf.not_equal(self.lumped_sents_separator.value(), ""):
+            #splitted = text.regex_split(inputs, self.lumped_sents_separator.numpy().decode())
+            splitted = tf.strings.split(inputs, self.lumped_sents_separator)
+            ret = self.spmproc.tokenize(splitted)
+            ret = ret.merge_dims(1, 3)
+        else:
+            ret = self.spmproc.tokenize(inputs)
             ret = tf.squeeze(ret, axis=1)
+        # ret = self.spmproc.tokenize(inputs)
+        if self.fixedlen is not None:
             ret_padded = ret.to_tensor(self.pad_value)
             ret_padded = tf.pad(ret_padded, tf.constant([[0,0,], [0,self.fixedlen,]]), constant_values=self.pad_value)
             ret_padded = ret_padded[:, :self.fixedlen]
@@ -255,7 +356,8 @@ class SPMNumericalizer(tf.keras.layers.Layer):
                     'fixedlen': self.fixedlen,
                     'pad_value': self.pad_value,
                     'add_bos': self.add_bos,
-                    'add_eos': self.add_eos})
+                    'add_eos': self.add_eos,
+                    'lumped_sents_separator': str(self.lumped_sents_separator.value())})
         return cfg
 
     @classmethod
@@ -399,8 +501,7 @@ class TiedDense(tf.keras.layers.Layer):
         return z
 
     def compute_output_shape(self, input_shape):
-        tf.print(f"For TIED DENSE the input shape is {input_shape}")
-        print(f"For TIED DENSE the input shape is {input_shape}")
+        # tf.print(f"For TIED DENSE the input shape is {input_shape}")
         # return (input_shape[0], tf.shape(self.ref_layer.weights[0])[0])
         return (input_shape[0], self.ref_layer.weights[0].shape[0])
         # return (input_shape[0], 35000)
