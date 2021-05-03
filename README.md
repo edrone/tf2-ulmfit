@@ -67,4 +67,94 @@ tagger, spm_proc = ulmfit_sequence_tagger(num_classes=3, \
 ```
 You can now run `tagger.summary()`, `tagger.fit(x, y, epochs=1, callbacks=[])` like you do with any keras model.
 
-## Serializing ULMFiT to a SavedModel and Tensorflow Hub format
+## Serializing to a SavedModel format
+WIP
+
+<hr   style="border:2px solid blue"/>
+
+# Using serialized ULMFiT model from Tensorflow Hub
+
+## Deserializing from a SavedModel and Tensorflow Hub format
+
+```
+import tensorflow_text as text
+import tensorflow_hub as hub
+
+ulmfit_bundle = hub.load('path_to_saved_model')
+example_text = tf.constant(["All men are born free and equal. [SEP] "\
+                            "They are endowed with reason and conscience " \
+                            "and should act towards one another in a spirit "\
+                            "of brotherhood."])
+```
+
+The deserialized SavedModel / TF Hub object serves as a wrapper for the proper model, which can be accessed using three **signatures**:
+
+* **string_encoder** - accepts strings, returns hidden states.
+   Subword tokenization, conversion of tokens to indices, adding BOS and EOS markers and padding is done automatically.
+* **numericalized_encoder** - accepts numericalized input, returns hidden states.
+   You can use this signature if you already have the numerical representation of your data.
+* **spm_processor** - accepts strings, performs tokenization, conversion of tokens to indices, add BOS and EOS markers and padding.
+   Use this signature if you only want to obtain token IDs.
+
+
+
+#### The string_encoder signature
+This signature returns a dictionary with three keys: `output` contains the hidden states for subsequent tokens, `numericalized` contains subword token IDs and `mask` shows padding (True = token, False = padding).
+```
+ulmfit_encoder = hub.KerasLayer(ulmfit_bundle.signatures['string_encoder'], trainable=True)
+ret = ulmfit_encoder(example_text)
+print(ret)
+{'output': <tf.Tensor: shape=(1, 512, 400), dtype=float32, numpy=
+array([[[ 2.1791911e-04, -3.6128119e-04,  1.6183863e-04, ...,         
+         -2.8810455e-04, -1.2454562e-04, -2.1535352e-04],             
+        [ 4.5642123e-04, -5.8338832e-04,  3.6983314e-04, ...,         
+         -6.2256883e-04, -2.2939572e-04, -4.9976230e-04],             
+        [ 5.7463942e-04, -6.3404167e-04,  7.6492300e-04, ...,         
+         -1.1259192e-03, -3.5521804e-05, -1.0689020e-03],             
+        ...,                                                          
+        [ 1.4855270e-03,  1.7452225e-03,  2.3215336e-03, ...,         
+          7.3179911e-04,  3.2494958e-03,  1.5500648e-04],             
+        [ 1.4855270e-03,  1.7452225e-03,  2.3215336e-03, ...,         
+          7.3179911e-04,  3.2494958e-03,  1.5500648e-04],             
+        [ 1.4855270e-03,  1.7452225e-03,  2.3215336e-03, ...,         
+          7.3179911e-04,  3.2494958e-03,  1.5500648e-04]]], dtype=float32)>, 
+'numericalized': <tf.Tensor: shape=(1, 512), dtype=int32, numpy=
+array([[    2, 11274,  9769,  2402,    47, 22706, 12507, 34930,  3122,
+          248,     0, 34941,   168, 34948,     3,     2,  1988, 34938,
+         2402,  4218,  7574, 34940, 18580,   178,   146,    61,  3122,
+          253,  2200, 12626,  3122,    16,  1160, 25882,    76,   454,
+         6311,  1200, 34935,  2470, 13251, 16065,   235,    76,  4913,
+        16254,   942,    47,   782,  3975,  1160,   538, 34948,     3,
+            1,     1,     1,     1,     1,     1,     1,     1,     1,
+            1,     1,     1,     1,     1,     1,     1,     1,     1, ...]],
+      dtype=int32)>,
+'mask': <tf.Tensor: shape=(1, 512), dtype=bool, numpy=
+array([[ True,  True,  True,  True,  True,  True,  True,  True,  True,
+         True,  True,  True,  True,  True,  True,  True,  True,  True,
+         True,  True,  True,  True,  True,  True,  True,  True,  True,
+         True,  True,  True,  True,  True,  True,  True,  True,  True,
+         True,  True,  True,  True,  True,  True,  True,  True,  True,
+         True,  True,  True,  True,  True,  True,  True,  True,  True,
+        False, False, False, False, False, False, False, False, False,
+        False, False, False, False, False, False, False, False, False,
+        ...]]>}
+		
+```
+#### The numericalized_encoder signature
+This signature runs the same model as string_encoder and returns only the `output` and `mask` keys.
+
+```
+fake_input = tf.constant([[2, 10, 20, 30, 3] + [1]*507]) # one sentence padded to 512 token IDs.
+ulmfit_encoder_numericalized = hub.KerasLayer(ulmfit_bundle.signatures['numericalized_encoder'], trainable=True)
+ret = ulmfit_encoder_numericalized(fake_input)
+```
+
+
+#### The spm_processor signature
+This signature returns the `numericalized` and `mask` keys.
+
+```
+ulmfit_spm_processor = hub.KerasLayer(ulmfit_bundle.signatures['spm_processor'], trainable=False)
+ret = ulmfit_spm_processor(example_text)
+print(ret)
+```

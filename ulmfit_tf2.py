@@ -204,99 +204,66 @@ class ExportableULMFiT(tf.keras.Model):
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
 
-        self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
-        self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
-        self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
+        # self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
+        # self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
+        # self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
 
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def __call__(self, x):
+        tf.print("WARNING: to obtain a trainable model, please wrap the `string_encoder` " \
+                 "or `numericalized_encoder` signature into a hub.KerasLayer(..., trainable=True) object")
         return self.string_encoder(x)
 
     @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
-    def numericalized_lm_head(self, numericalized):
-        # return {'lm_head': self.lm_model(numericalized)}
-        return {'lm_head': self.lm_model_num(numericalized)}
-
-    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
     def numericalized_encoder(self, numericalized):
-        return self.encoder_num(numericalized)
-
-    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
-    def numericalized_explicit_mask(self, numericalized):
-        # return {'lm_head': self.lm_model_num(numericalized),
-        #          'encoder': self.encoder_num(numericalized),
-        #          'explicit_mask': self.masker_num(numericalized)}
-        return self.masker_num(numericalized)
-
-    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
-    def string_lm_head(self, string_inputs):
-        return self.lm_model_str(string_inputs)
+        mask = self.masker_num(numericalized)
+        return {'output': self.encoder_num(numericalized),
+                'mask': mask}
 
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def string_encoder(self, string_inputs):
-        return self.encoder_str(string_inputs)
+        numerical_representation = self.string_numericalizer(string_inputs)
+        hidden_states = self.numericalized_encoder(numerical_representation['numericalized'])['output']
+        return {'output': hidden_states,
+                'numericalized': numerical_representation['numericalized'],
+                'mask': numerical_representation['mask']}
 
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
-    def string_explicit_mask(self, string_inputs):
-        return self.masker_str(string_inputs)
+    def string_numericalizer(self, string_inputs):
+        numerical_representation = self.spm_encoder_model(string_inputs)
+        mask = self.masker_num(numerical_representation)
+        return {'numericalized': numerical_representation,
+                'mask': mask}
 
-        #return {'lm_head': self.lm_model_str(string_inputs),
-        #         'encoder': self.encoder_str(string_inputs),
-        #         'explicit_mask': self.masker_str(string_inputs)}
+    ################## UNSUPPORTED / EXPERIMENTAL #################
 
+    #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    #def numericalized_lm_head(self, numericalized):
+    #    # return {'lm_head': self.lm_model(numericalized)}
+    #    return self.lm_model_num(numericalized)
+    #
+    #@tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    #def string_lm_head(self, string_inputs):
+    #    return self.lm_model_str(string_inputs)
+    #
+    #
+    #@tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
+    #def spm_set_sentence_separator(self, sep):
+    #    """ Insert additional <s> and </s> tokens between sentences in a single training example.
 
-    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
-    def numericalizer(self, string_inputs):
-        return self.spm_encoder_model(string_inputs)
+    #        This can be useful if working with short documents on which
+    #        for some reason the model performs better if they are sentence-tokenized.
+    #        
+    #        The `sep` symbol is a separator by which each input example is split and
+    #        surrounded by <s>...</s> tokens (only if `add_bos` and `add_eos` options
+    #        for the SPMNumericalizer were set to True). For example, this input:
 
-    @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
-    def spm_set_sentence_separator(self, sep):
-        """ Insert additional <s> and </s> tokens between sentences in a single training example.
+    #        The cat sat on a mat. [SEP] And spat.
 
-            This can be useful if working with short documents on which
-            for some reason the model performs better if they are sentence-tokenized.
-            
-            The `sep` symbol is a separator by which each input example is split and
-            surrounded by <s>...</s> tokens (only if `add_bos` and `add_eos` options
-            for the SPMNumericalizer were set to True). For example, this input:
-
-            The cat sat on a mat. [SEP] And spat.
-
-            can be encoded as:
-            <s> The cat sat on a mat. </s> <s> And spat. </s>
-        """
-        self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
-
-    @tf.function(input_signature=[])
-    def spm_unset_sentence_separator(self):
-        self.spm_encoder_model.layers[1].lumped_sents_separator.assign("")
-
-    # @tf.function(input_signature=[tf.TensorSpec((1,), dtype=tf.int32)])
-    # def amend_sequence_length(self, new_length):
-    #     new_input_layer = tf.keras.layers.Input((new_length.eval(),), dtype=tf.int32)
-    #     self.lm_model_num = tf.keras.models.Sequential([new_input_layer] + self.lm_model_num.layers[1:])
-    #     self.encoder_num = tf.keras.models.Sequential([new_input_layer] + self.encoder_num.layers[1:])
-    #     self.masker_num = tf.keras.models.Sequential([new_input_layer] + self.masker_num.layers[1:])
-
-    #     new_textual_input = tf.keras.layers.Input((1,), dtype=tf.string32)
-    #     self.spm_encoder_model = tf.keras.models.Sequential([new_textual_input,
-    #                             SPMNumericalizer(spm_path=self.spm_asset, fixedlen=new_length, add_bos=True, add_eos=True)])
-    #     #;STAD
-    #     self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
-    #     self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
-    #     self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
-
-
-#class ExperimentalClass(tf.keras.Model):
-#    def __init__(self, lm_model_num, spm_args):
-#        pass
-#
-#    @tf.function(input_signature=[tf.TensorSpec([None, MAX_SEQ_LEN], dtype=tf.int32)])
-#    def fixed_len_numericalized(self, numericalized):
-#        # return {'lm_head': self.lm_model(numericalized)}
-#        return {'lm_head': self.lm_model_num(numericalized),
-#                 'encoder': self.encoder_num(numericalized),
-#                 'explicit_mask': self.masker_num(numericalized)}
+    #        can be encoded as:
+    #        <s> The cat sat on a mat. </s> <s> And spat. </s>
+    #    """
+    #    self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
 
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
@@ -313,18 +280,25 @@ class SPMNumericalizer(tf.keras.layers.Layer):
         self.spmproc = text.SentencepieceTokenizer(self.spm_proto, add_bos=self.add_bos, add_eos=self.add_eos)
         self.fixedlen = fixedlen
         self.pad_value = pad_value
-        #self.lumped_sents_separator = tf.Variable(lumped_sents_separator, name="spm_sent_sep")
-        self.lumped_sents_separator = tf.Variable(lumped_sents_separator, name="spm_sent_sep")
+        self.lumped_sents_separator = lumped_sents_separator
+        #self.lumped_sents_separator = tf.Variable(initial_value=tf.keras.initializers.Constant(""),
+        #                                          dtype=tf.string,
+        #                                          name="spm_sent_sep",
+        #                                          trainable=False)
         super().__init__(name=name, **kwargs)
         self.trainable = False
 
     def build(self, input_shape):
         print(f">>>> INSIDE BUILD / SPMTOK <<<< {input_shape} ")
         super().build(input_shape)
+        #self.lumped_sents_separator = tf.Variable(initial_value=tf.keras.initializers.Constant(""),
+        #                                          dtype=tf.string,
+        #                                          name="spm_sent_sep",
+        #                                          trainable=False)
 
     @tf.function
     def call(self, inputs, training=None):
-        if tf.not_equal(self.lumped_sents_separator.value(), ""):
+        if tf.not_equal(self.lumped_sents_separator, ""):
             #splitted = text.regex_split(inputs, self.lumped_sents_separator.numpy().decode())
             splitted = tf.strings.split(inputs, self.lumped_sents_separator)
             ret = self.spmproc.tokenize(splitted)
@@ -340,6 +314,24 @@ class SPMNumericalizer(tf.keras.layers.Layer):
             return ret_padded
         else:
             return tf.squeeze(ret, axis=1)
+    
+    # @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
+    def set_sentence_separator(self, sep):
+        """ Insert additional <s> and </s> tokens between sentences in a single training example.
+
+            This can be useful if working with short documents on which
+            for some reason the model performs better if they are sentence-tokenized.
+            
+            The `sep` symbol is a separator by which each input example is split and
+            surrounded by <s>...</s> tokens (only if `add_bos` and `add_eos` options
+            for the SPMNumericalizer were set to True). For example, this input:
+
+            The cat sat on a mat. [SEP] And spat.
+
+            can be encoded as:
+            <s> The cat sat on a mat. </s> <s> And spat. </s>
+        """
+        self.lumped_sents_separator = sep
 
     def compute_output_shape(self, input_shape):
         tf.print(f"INPUT SHAPE IS {input_shape}")
@@ -357,7 +349,7 @@ class SPMNumericalizer(tf.keras.layers.Layer):
                     'pad_value': self.pad_value,
                     'add_bos': self.add_bos,
                     'add_eos': self.add_eos,
-                    'lumped_sents_separator': str(self.lumped_sents_separator.value())})
+                    'lumped_sents_separator': ""})
         return cfg
 
     @classmethod
