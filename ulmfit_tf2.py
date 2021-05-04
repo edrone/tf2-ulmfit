@@ -59,7 +59,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
                                      add_eos=spm_args.get('add_eos') or False,
                                      fixedlen=None,
                                      lumped_sents_separator=spm_args.get('lumped_sents_separator') or False,
-                                     name="ragged_spm_numericalizer")(string_input_layer)
+                                     name="ragged_spm_numericalizer")
         vocab_size = spm_layer.spmproc.vocab_size().numpy()
         numericalized_layer = spm_layer(string_input_layer)
         print(f"Building an ULMFiT model with: \n1) a variable sequence and RaggedTensors\n2) a vocabulary size of {vocab_size}.")
@@ -197,9 +197,9 @@ class ExportableULMFiT(tf.keras.Model):
     dropout on the output).
     """
 
-    def __init__(self, lm_model_num, encoder_num, outmask_num, spm_encoder_model):
+    def __init__(self, encoder_num, outmask_num, spm_encoder_model):
         super().__init__()
-        self.lm_model_num = lm_model_num
+        # self.lm_model_num = lm_model_num
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
@@ -313,7 +313,8 @@ class SPMNumericalizer(tf.keras.layers.Layer):
             ret_padded = ret_padded[:, :self.fixedlen]
             return ret_padded
         else:
-            return tf.squeeze(ret, axis=1)
+            # return tf.squeeze(ret, axis=1)
+            return ret
     
     # @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
     def set_sentence_separator(self, sep):
