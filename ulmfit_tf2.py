@@ -53,7 +53,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
     ##### STAGE 1 - FROM INPUT STRING TO A NUMERICALIZED REPRESENTATION TO EMBEDDINGS #####
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None) # initializer for embeddings
     if fixed_seq_len is None:
-        string_input_layer = tf.keras.layers.Input(shape=(None,), dtype=tf.string, ragged=True, name="ragged_string_input")
+        string_input_layer = tf.keras.layers.Input(shape=(), dtype=tf.string, name="ragged_string_input")
         spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
                                      add_bos=spm_args.get('add_bos') or False,
                                      add_eos=spm_args.get('add_eos') or False,
@@ -63,10 +63,11 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
         vocab_size = spm_layer.spmproc.vocab_size().numpy()
         numericalized_layer = spm_layer(string_input_layer)
         print(f"Building an ULMFiT model with: \n1) a variable sequence and RaggedTensors\n2) a vocabulary size of {vocab_size}.")
-        print(f"NOTE: THIS MODEL IS NOT SERIALIZABLE TO a SavedModel as of TF 2.4.x because of RaggedTensors. Some promises " \
-              f"to fix this were made around version 2.5.0, so please check in the future. Save weights to a checkpoint " \
-              f"instead and restore them with model.load_weights using Python code. If you need proper serialization, build" \
-              f"a model with a fixed sequence length.")
+        print(f"NOTE: THIS MODEL IS ONLY EXPERIMENTALLY SERIALIZABLE TO a SavedModel as of TF 2.4.x because of RaggedTensors. " \
+                "It will output flat values and row splits, which you must then combine back into a RaggedTensor yourself:\n " \
+                "\nret = model(tf.contant(['Hello, world', 'of RaggedTensors'])) " \
+                "\nret = tf.RaggedTensor.from_row_splits(ret[0], ret[1]) " \
+                "\n\nThere are plans to fix this around future TF version 2.5.0, until then we have to live with this serialiation workaround.")
         embedz = CustomMaskableEmbedding(vocab_size,
                                          400,
                                          embeddings_initializer=uniform_initializer,
@@ -149,7 +150,11 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
     ##### ALL MODELS ZUSAMMEN DO KUPY TOGETHER #####
     spm_encoder_model = tf.keras.Model(inputs=string_input_layer, outputs=numericalized_layer)
     lm_model_num = tf.keras.Model(inputs=middle_input, outputs=lm)
-    encoder_num = tf.keras.Model(inputs=middle_input, outputs=rnn_encoder)
+    if fixed_seq_len is None: # RaggedTensors as outputs are not serializable when using signatures. This *may* be fixed in TF 2.5.1
+        encoder_num = tf.keras.Model(inputs=middle_input, outputs=[rnn_encoder.flat_values, rnn_encoder.row_splits])
+    else:
+        encoder_num = tf.keras.Model(inputs=middle_input, outputs=rnn_encoder)
+
     outmask_num = tf.keras.Model(inputs=middle_input, outputs=explicit_mask)
 
     return lm_model_num, encoder_num, outmask_num, spm_encoder_model
@@ -205,16 +210,20 @@ class ExportableULMFiT(tf.keras.Model):
         self.spm_encoder_model = spm_encoder_model
 
         # self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
-        # self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
+        self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
         # self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
 
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def __call__(self, x):
         tf.print("WARNING: to obtain a trainable model, please wrap the `string_encoder` " \
-                 "or `numericalized_encoder` signature into a hub.KerasLayer(..., trainable=True) object")
+                 "or `numericalized_encoder` signature into a hub.KerasLayer(..., trainable=True) object. \n" \
+                 "If you are seralizing a model with RaggedTensors, wrap the Keras objects directly "\
+                 "(ulmfit_blob.encoder_str or ulmfit_blob.encoder_num depending on the type of inputs), not their " \
+                 "signatures")
         return self.string_encoder(x)
 
-    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    @tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
+    #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
     def numericalized_encoder(self, numericalized):
         mask = self.masker_num(numericalized)
         return {'output': self.encoder_num(numericalized),
@@ -302,18 +311,18 @@ class SPMNumericalizer(tf.keras.layers.Layer):
             #splitted = text.regex_split(inputs, self.lumped_sents_separator.numpy().decode())
             splitted = tf.strings.split(inputs, self.lumped_sents_separator)
             ret = self.spmproc.tokenize(splitted)
-            ret = ret.merge_dims(1, 3)
+            ret = ret.merge_dims(1, 2)
         else:
             ret = self.spmproc.tokenize(inputs)
-            ret = tf.squeeze(ret, axis=1)
         # ret = self.spmproc.tokenize(inputs)
         if self.fixedlen is not None:
             ret_padded = ret.to_tensor(self.pad_value)
+            ret_padded = tf.squeeze(ret_padded, axis=1)
             ret_padded = tf.pad(ret_padded, tf.constant([[0,0,], [0,self.fixedlen,]]), constant_values=self.pad_value)
             ret_padded = ret_padded[:, :self.fixedlen]
             return ret_padded
         else:
-            # return tf.squeeze(ret, axis=1)
+            # ret = tf.squeeze(ret, axis=1)
             return ret
     
     # @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
