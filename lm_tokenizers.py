@@ -1,5 +1,6 @@
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 import sentencepiece as spm
+from modelling_scripts.ulmfit_tf2 import SPMNumericalizer
 
 """ Evaluate perplexity of a causal language model and pseudo-perplexity of a masked language model """
 
@@ -22,6 +23,8 @@ class LMTokenizerFactory:
             if add_bos: extra_opts.append("bos")
             if add_eos: extra_opts.append("eos")
             tok_obj.set_encode_extra_options(":".join(extra_opts))
+        elif tokenizer_type == 'spm_tf_text':
+            tok_obj = SPMNumericalizer(spm_path=tokenizer_file, add_bos=add_bos, add_eos=add_eos)
         elif tokenizer_type =='polish_roberta':
             TOKENIZER_ARGS['polish_roberta']['tokenizer_file'] = tokenizer_file
             tok_obj = PreTrainedTokenizerFast(**TOKENIZER_ARGS['polish_roberta'])
