@@ -63,11 +63,14 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
         vocab_size = spm_layer.spmproc.vocab_size().numpy()
         numericalized_layer = spm_layer(string_input_layer)
         print(f"Building an ULMFiT model with: \n1) a variable sequence and RaggedTensors\n2) a vocabulary size of {vocab_size}.")
-        print(f"NOTE: THIS MODEL IS ONLY EXPERIMENTALLY SERIALIZABLE TO a SavedModel as of TF 2.4.x because of RaggedTensors. " \
-                "It will output flat values and row splits, which you must then combine back into a RaggedTensor yourself:\n " \
-                "\nret = model(tf.contant(['Hello, world', 'of RaggedTensors'])) " \
-                "\nret = tf.RaggedTensor.from_row_splits(ret[0], ret[1]) " \
-                "\n\nThere are plans to fix this around future TF version 2.5.0, until then we have to live with this serialiation workaround.")
+        print("=================================================================================================================")
+        print(f"NOTE: THIS MODEL IS ONLY EXPERIMENTALLY SERIALIZABLE TO a SavedModel as of TF 2.4.x because of RaggedTensors." \
+                "\nIt will output flat values and row splits, which you must then combine back into a RaggedTensor yourself:\n " \
+                "\nret = model(tf.constant(['Hello, world', 'of RaggedTensors'])) " \
+                "\nret_tensor = tf.RaggedTensor.from_row_splits(ret['output'][0], ret['output'][1]) " \
+                "\n\nThere are plans to fix this around future TF version 2.5.0, until then we have to live with this" \
+                "\nserialization workaround.")
+        print("=================================================================================================================")
         embedz = CustomMaskableEmbedding(vocab_size,
                                          400,
                                          embeddings_initializer=uniform_initializer,
@@ -156,7 +159,6 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
         encoder_num = tf.keras.Model(inputs=middle_input, outputs=rnn_encoder)
 
     outmask_num = tf.keras.Model(inputs=middle_input, outputs=explicit_mask)
-
     return lm_model_num, encoder_num, outmask_num, spm_encoder_model
 
 class ExportableULMFiT(tf.keras.Model):
@@ -170,10 +172,10 @@ class ExportableULMFiT(tf.keras.Model):
 
     lm_num, enc_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_model_file='plwiki100-sp35k.model', fixed_seq_len=100)
     tf.keras.backend.set_learning_phase(0) # very important!!! do not skip!
-    exportable = ExportableULMFiT(lm_model_num, encoder_num, outmask_num, spm_encoder_model)
-    convenience_signatures={'numericalized_fixed_len': exportable.fixed_len_numericalized,
-                            'string_fixed_len': exportable.fixed_len_string,
-                            'numericalizer': exportable.numericalizer}
+    exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model)
+    convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder,
+                            'string_encoder': exportable.string_encoder,
+                            'spm_processor': exportable.string_numericalizer}
     tf.saved_model.save(exportable, 'ulmfit_tf2', signatures=convenience_signatures)
 
 
@@ -184,15 +186,14 @@ class ExportableULMFiT(tf.keras.Model):
     import tensorflow as tf
 
     restored_hub = hub.load('ulmfit_tf2')   # now you can work with functions listed in signatures:
-    hello_vectors = restored_hub.fixed_len_string(tf.constant([["Dzień dobry, ULMFiT!"]]))
-    hello_vectors signatures['string_fixed_len'](tf.constant([["Dzień dobry, ULMFiT!"]]))
+    hello_vectors = restored_hub(tf.constant(["Dzień dobry, ULMFiT!"]))
 
-    Note the above examples return dictionaries with the encoder, LM head and mask outputs.
+    Note the above examples return dictionaries with the encoder, numericalized tokens and mask outputs.
     If you want to use RNN vectors as a Keras layer you can access the serialized model
     directly like this:
 
-    rnn_encoder = hub.KerasLayer(restored_hub.lm_model_str, trainable=True) # or .lm_model_num for numericalized inputs
-    hello_vectors_padded = rnn_encoder(tf.constant([['Dzień dobry, ULMFiT']]))
+    rnn_encoder = hub.KerasLayer(restored_hub.encoder_str, trainable=True) # or .encoder_num for numericalized inputs
+    hello_vectors = rnn_encoder(tf.constant(['Dzień dobry, ULMFiT']))
 
     If you want, you can also manually verify that all the fancy dropouts from the ULMFiT paper are there:
 
@@ -222,8 +223,8 @@ class ExportableULMFiT(tf.keras.Model):
                  "signatures")
         return self.string_encoder(x)
 
-    @tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
-    #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    #@tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
+    @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
     def numericalized_encoder(self, numericalized):
         mask = self.masker_num(numericalized)
         return {'output': self.encoder_num(numericalized),
@@ -273,6 +274,18 @@ class ExportableULMFiT(tf.keras.Model):
     #        <s> The cat sat on a mat. </s> <s> And spat. </s>
     #    """
     #    self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
+
+class ExportableULMFiTRagged(ExportableULMFiT):
+    """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
+    def __init__(self, encoder_num, outmask_num, spm_encoder_model):
+        super().__init__(encoder_num, outmask_num, spm_encoder_model)
+
+    @tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
+    #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
+    def numericalized_encoder(self, numericalized):
+        mask = self.masker_num(numericalized)
+        return {'output': self.encoder_num(numericalized),
+                'mask': mask}
 
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
@@ -398,7 +411,6 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
             # row_length = input.row.lengths() 
             # bsize = tf.shape(inputs)[0]
             # seq_len = tf.shape(inputs)[1]
-            tf.print(f"{tf.shape(flattened_batch)}")
             ones = tf.ones((tf.shape(flattened_batch)[0],), dtype=tf.float32)
             dp_mask = tf.nn.dropout(ones, rate=self.encoder_dp_rate)
             dp_mask = tf.cast(tf.cast(dp_mask, tf.bool), tf.float32) # proper zeros and ones
@@ -614,7 +626,6 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
             # row_length = input.row.lengths() 
             # bsize = tf.shape(inputs)[0]
             # seq_len = tf.shape(inputs)[1]
-            tf.print(f"{tf.shape(flattened_batch)}")
             ones = tf.ones((tf.shape(flattened_batch)[1],), dtype=tf.float32)
             dp_mask = tf.nn.dropout(ones, rate=self.rate)
             dp_mask = tf.cast(tf.cast(dp_mask, tf.bool), tf.float32) # proper zeros and ones
