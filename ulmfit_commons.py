@@ -44,7 +44,7 @@ def get_fastai_tensors(args):
                 cnt += 1
     return L_tensors_train, L_tensors_valid
 
-def save_as_keras(state_dict, exp_name, save_path, awd_weights, spm_model_file):
+def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len, spm_model_file):
     """
     Creates an ULMFit inference model using Keras layers and copies weights from FastAI's learner.model.state_dict() there.
 
@@ -57,31 +57,26 @@ def save_as_keras(state_dict, exp_name, save_path, awd_weights, spm_model_file):
     from modelling_scripts.ulmfit_tf2_heads import ulmfit_sequence_tagger, ulmfit_baseline_tagger
     from modelling_scripts.ulmfit_tf2 import tf2_ulmfit_encoder, TiedDense
 
+    spm_args = {'spm_model_file': spm_model_file,
+                'add_bos': True,
+                'add_eos': True,
+                'lumped_sents_separator': '[SEP]'
+    }
+
     if awd_weights == 'on':
-        kmodel, _, _, _ = tf2_ulmfit_encoder(fixed_seq_len=None, spm_model_file=spm_model_file)
+        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=True, spm_args=spm_args)
         rnn_layer1 = 'AWD_RNN1'
         rnn_layer2 = 'AWD_RNN2'
         rnn_layer3 = 'AWD_RNN3'
     elif awd_weights == 'off':
-        kmodel = ulmfit_baseline_tagger(fixed_seq_len=768, spm_model_file=None)
+        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=False, spm_args=spm_args)
         rnn_layer1 = 'Plain_LSTM1'
         rnn_layer2 = 'Plain_LSTM2'
         rnn_layer3 = 'Plain_LSTM3'
-        kmodel.pop() # tagger head
-        kmodel.pop() # dropout
-        kmodel.add(tf.keras.layers.TimeDistributed(TiedDense(reference_layer=kmodel.layers[0], activation='softmax'), name='lm_head_tied'))
-        kmodel.add(tf.keras.layers.Dropout(0.05))
     else:
         raise ValueError(f"Unknown awd_weights argument {awd_weights}!")
-    # kmodel = tf.keras.models.Sequential()
-    # kmodel.add(tf.keras.layers.Input(shape=[None], dtype=tf.int32, ragged=True)) # ragged tensors = variable input length!
-    # kmodel.add(tf.keras.layers.Embedding(args['vocab_size'], 400, name='ulmfit_embedz'))
-    # kmodel.add(tf.keras.layers.LSTM(1152, return_sequences=True, name='ulmfit_lstm1'))
-    # kmodel.add(tf.keras.layers.LSTM(1152, return_sequences=True, name='ulmfit_lstm2'))
-    # kmodel.add(tf.keras.layers.LSTM(400, return_sequences=True, name='ulmfit_lstm3'))
-    # kmodel.add(tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(args['vocab_size'], activation='linear'), name='lm_head')) # originally: linear
 
-    kmodel.get_layer('ulmfit_embeds').set_weights([state_dict['0.encoder.weight'].cpu().numpy()])
+    lm_num.get_layer('ulmfit_embeds').set_weights([state_dict['0.encoder.weight'].cpu().numpy()])
     rnn_weights1 = [state_dict['0.rnns.0.module.weight_ih_l0'].cpu().numpy().T,
                     state_dict['0.rnns.0.weight_hh_l0_raw'].cpu().numpy().T,
                     state_dict['0.rnns.0.module.bias_ih_l0'].cpu().numpy()*2]
@@ -97,11 +92,10 @@ def save_as_keras(state_dict, exp_name, save_path, awd_weights, spm_model_file):
         rnn_weights2.append(state_dict['0.rnns.1.weight_hh_l0_raw'].cpu().numpy().T)
         rnn_weights3.append(state_dict['0.rnns.2.weight_hh_l0_raw'].cpu().numpy().T)
 
-    kmodel.get_layer(rnn_layer1).set_weights(rnn_weights1)
-    kmodel.get_layer(rnn_layer2).set_weights(rnn_weights2)
-    kmodel.get_layer(rnn_layer3).set_weights(rnn_weights3)
-    kmodel.get_layer('lm_head_tied').set_weights([state_dict['1.decoder.bias'].cpu().numpy(),
+    lm_num.get_layer(rnn_layer1).set_weights(rnn_weights1)
+    lm_num.get_layer(rnn_layer2).set_weights(rnn_weights2)
+    lm_num.get_layer(rnn_layer3).set_weights(rnn_weights3)
+    lm_num.get_layer('lm_head_tied').set_weights([state_dict['1.decoder.bias'].cpu().numpy(),
                                                   state_dict['1.decoder.weight'].cpu().numpy()])
-    kmodel.save_weights(os.path.join(save_path, exp_name))
-
-
+    lm_num.save_weights(os.path.join(save_path, exp_name))
+    return lm_num, encoder_num, outmask_num, spm_encoder_model
