@@ -277,18 +277,34 @@ class ExportableULMFiT(tf.keras.Model):
 
 
 
-class ExportableULMFiTRagged(ExportableULMFiT):
+class ExportableULMFiTRagged(tf.keras.Model):
     """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
     def __init__(self, encoder_num, outmask_num, spm_encoder_model):
-        super().__init__(encoder_num, outmask_num, spm_encoder_model)
+        super().__init__()
+        self.encoder_num = encoder_num
+        self.spm_encoder_model = spm_encoder_model
 
-    @tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
+    # def __call__(self, x):
+    #     rag_num = self.string_numericalizer(x)['numericalized']
+    #     return self.numericalized_encoder(rag_num)
+        
+    @tf.function(input_signature=[tf.RaggedTensorSpec([None,None], dtype=tf.int32)])
     #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
-    def numericalized_encoder(self, numericalized):
-        mask = self.masker_num(numericalized)
-        return {'output': self.encoder_num(numericalized),
+    def numericalized_encoder(self, numericalizedd):
+        wynik = self.encoder_num(numericalizedd)
+        return {'output_flat': wynik[0],
+                'output_rows': wynik[1]
+        }
+
+    # @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    def string_numericalizer(self, string_inputs):
+        numerical_representation = self.spm_encoder_model(string_inputs)
+        mask = self.masker_num(numerical_representation)
+        return {'numericalized': numerical_representation,
                 'mask': mask}
 
+
+    
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
     def __init__(self, name=None, spm_path=None, fixedlen=None,

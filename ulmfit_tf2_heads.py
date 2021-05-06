@@ -26,18 +26,22 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
                               also_return_spm_encoder=False, use_awd=True):
     print(f"Info: When restoring the ULMFiT encoder from a SavedModel, `use_awd` and `spm_model_args` have no effect`")
     restored_hub = hub.load(pretrained_weights)
-    il = tf.keras.layers.Input(shape=(None,), ragged=True if fixed_seq_len is None else False, name="numericalized_input", dtype=tf.int32)
-    kl = hub.KerasLayer(restored_hub.encoder_num, trainable=True, name="ulmfit_encoder")(il)
+
     if fixed_seq_len == None: # TODO: check tensorspec and print a pretty info if ragged parameters here and in the SavedModel are incompatible
-        rec_ragged_tensor = tf.RaggedTensor.from_row_splits(kl[0], kl[1])
-        model = tf.keras.models.Model(inputs=il, outputs=rec_ragged_tensor)
+        il = tf.keras.layers.Input(shape=(None,), name="numericalized_input", dtype=tf.int32)
+        il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
+        kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
+        # model = tf.keras.models.Model(inputs=il, outputs=rec_ragged_tensor)
     else:
-        model = tf.keras.models.Model(inputs=il, outputs=kl)
+        il = tf.keras.layers.Input(shape=(fixed_seq_len,), name="numericalized_input", dtype=tf.int32)
+        kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
+        #model = tf.keras.models.Model(inputs=il, outputs=kl)
         #model = tf.keras.models.Model(inputs=il, outputs=kl)
     if also_return_spm_encoder:
-        return model, restored_hub.spm_encoder_model
+        raise ValueError("Boo")
+        #return model, restored_hub.spm_encoder_model
     else:
-        return model
+        return il, kl
 
 def ulmfit_sequence_tagger(*, enc_num, num_classes=3):
     print(f"Adding sequence tagging head with n_classes={num_classes}")
