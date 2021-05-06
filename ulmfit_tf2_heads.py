@@ -28,9 +28,10 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
     restored_hub = hub.load(pretrained_weights)
 
     if fixed_seq_len == None: # TODO: check tensorspec and print a pretty info if ragged parameters here and in the SavedModel are incompatible
-        il = tf.keras.layers.Input(shape=(None,), name="numericalized_input", dtype=tf.int32)
-        il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
-        kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
+        il = tf.keras.layers.Input(shape=(None,), ragged=True, name="numericalized_input", dtype=tf.int32)
+        #il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
+        # kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
+        kl = hub.KerasLayer(restored_hub.encoder_num)(il)
         # model = tf.keras.models.Model(inputs=il, outputs=rec_ragged_tensor)
     else:
         il = tf.keras.layers.Input(shape=(fixed_seq_len,), name="numericalized_input", dtype=tf.int32)
@@ -41,12 +42,26 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         raise ValueError("Boo")
         #return model, restored_hub.spm_encoder_model
     else:
-        return il, kl
+        return il, kl, restored_hub
 
-def ulmfit_sequence_tagger(*, enc_num, num_classes=3):
-    print(f"Adding sequence tagging head with n_classes={num_classes}")
-    tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(enc_num.output)
-    tagger_model = tf.keras.models.Model(inputs=enc_num.inputs, outputs=tagger_head)
+def ulmfit_sequence_tagger(*, enc_num, model_type='from_cp', num_classes=3, fixed_seq_len=None, **kwargs):
+    if model_type == 'from_hub':
+        print(f"Adding sequence tagging head with n_classes={num_classes} (TF Hub)")
+        if fixed_seq_len is None:
+            il = kwargs['input_layer']
+            kl = kwargs['keras_layer']
+            ragged_spowrotem = tf.RaggedTensor.from_row_splits(kl[0], kl[1])
+            tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes))(ragged_spowrotem)
+            tagger_model = tf.keras.models.Model(inputs=il, outputs=tagger_head)
+        else:
+            il = kwargs['input_layer']
+            kl = kwargs['keras_layer']
+            tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes))(kl)
+            tagger_model = tf.keras.models.Model(inputs=il, outputs=tagger_head)
+    else:
+        print(f"Adding sequence tagging head with n_classes={num_classes}")
+        tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(enc_num.output)
+        tagger_model = tf.keras.models.Model(inputs=enc_num.inputs, outputs=tagger_head)
     return tagger_model
 
 ############# THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########

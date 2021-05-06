@@ -230,6 +230,22 @@ class ExportableULMFiT(tf.keras.Model):
         return {'output': self.encoder_num(numericalized),
                 'mask': mask}
 
+    @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.float32)])
+    def apply_awd(self, awd_rate):
+        tf.print("Applying AWD in graph mode")
+        rnn1_w = self.encoder_num.get_layer("AWD_RNN1").variables
+        rnn2_w = self.encoder_num.get_layer("AWD_RNN2").variables
+        rnn3_w = self.encoder_num.get_layer("AWD_RNN3").variables
+
+        w1_mask = tf.nn.dropout(tf.fill(rnn1_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn1_w[1].assign(w1_mask * rnn1_w[1])
+
+        w2_mask = tf.nn.dropout(tf.fill(rnn2_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn2_w[1].assign(w2_mask * rnn2_w[2])
+
+        w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn3_w[1].assign(w3_mask * rnn3_w[2])
+
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def string_encoder(self, string_inputs):
         numerical_representation = self.string_numericalizer(string_inputs)
@@ -287,11 +303,14 @@ class ExportableULMFiTRagged(tf.keras.Model):
     # def __call__(self, x):
     #     rag_num = self.string_numericalizer(x)['numericalized']
     #     return self.numericalized_encoder(rag_num)
-        
-    @tf.function(input_signature=[tf.RaggedTensorSpec([None,None], dtype=tf.int32)])
-    #@tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
-    def numericalized_encoder(self, numericalizedd):
-        wynik = self.encoder_num(numericalizedd)
+
+    # I have no clue how to wrap this around a hub.KerasLayer - please help!
+    @tf.function(input_signature=[[tf.TensorSpec([None,], dtype=tf.int32),
+                                   tf.TensorSpec([None,], dtype=tf.int64)]])
+    def numericalized_encoder(self, x):
+        flat_values=x[0]
+        row_splits=x[1]
+        wynik = self.encoder_num(tf.RaggedTensor.from_row_splits(flat_values, row_splits))
         return {'output_flat': wynik[0],
                 'output_rows': wynik[1]
         }
@@ -303,6 +322,21 @@ class ExportableULMFiTRagged(tf.keras.Model):
         return {'numericalized': numerical_representation,
                 'mask': mask}
 
+    @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.float32)])
+    def apply_awd(self, awd_rate):
+        tf.print("Applying AWD in graph mode and ragged tensors")
+        rnn1_w = self.encoder_num.get_layer("AWD_RNN1").variables
+        rnn2_w = self.encoder_num.get_layer("AWD_RNN2").variables
+        rnn3_w = self.encoder_num.get_layer("AWD_RNN3").variables
+
+        w1_mask = tf.nn.dropout(tf.fill(rnn1_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn1_w[1].assign(w1_mask * rnn1_w[1])
+
+        w2_mask = tf.nn.dropout(tf.fill(rnn2_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn2_w[1].assign(w2_mask * rnn2_w[2])
+
+        w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
+        rnn3_w[1].assign(w3_mask * rnn3_w[2])
 
     
 @tf.keras.utils.register_keras_serializable()
