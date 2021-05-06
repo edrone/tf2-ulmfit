@@ -1,4 +1,5 @@
 import os, subprocess
+import numpy as np
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
@@ -54,7 +55,7 @@ def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len
     """
 
     import tensorflow as tf
-    from modelling_scripts.ulmfit_tf2_heads import ulmfit_sequence_tagger, ulmfit_baseline_tagger
+    from modelling_scripts.ulmfit_tf2_heads import ulmfit_sequence_tagger
     from modelling_scripts.ulmfit_tf2 import tf2_ulmfit_encoder, TiedDense
 
     spm_args = {'spm_model_file': spm_model_file,
@@ -64,18 +65,18 @@ def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len
     }
 
     if awd_weights == 'on':
-        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=True, spm_args=spm_args)
+        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=True, spm_args=spm_args, flatten_ragged_outputs=True)
         rnn_layer1 = 'AWD_RNN1'
         rnn_layer2 = 'AWD_RNN2'
         rnn_layer3 = 'AWD_RNN3'
     elif awd_weights == 'off':
-        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=False, spm_args=spm_args)
+        lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, use_awd=False, spm_args=spm_args, flatten_ragged_outputs=True)
         rnn_layer1 = 'Plain_LSTM1'
         rnn_layer2 = 'Plain_LSTM2'
         rnn_layer3 = 'Plain_LSTM3'
     else:
         raise ValueError(f"Unknown awd_weights argument {awd_weights}!")
-
+    lm_num.summary()
     lm_num.get_layer('ulmfit_embeds').set_weights([state_dict['0.encoder.weight'].cpu().numpy()])
     rnn_weights1 = [state_dict['0.rnns.0.module.weight_ih_l0'].cpu().numpy().T,
                     state_dict['0.rnns.0.weight_hh_l0_raw'].cpu().numpy().T,
@@ -89,8 +90,11 @@ def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len
 
     if awd_weights == 'on':
         rnn_weights1.append(state_dict['0.rnns.0.weight_hh_l0_raw'].cpu().numpy().T)
+        # rnn_weights1.append(np.array(False))
         rnn_weights2.append(state_dict['0.rnns.1.weight_hh_l0_raw'].cpu().numpy().T)
+        # rnn_weights2.append(np.array(False))
         rnn_weights3.append(state_dict['0.rnns.2.weight_hh_l0_raw'].cpu().numpy().T)
+        # rnn_weights3.append(np.array(False))
 
     lm_num.get_layer(rnn_layer1).set_weights(rnn_weights1)
     lm_num.get_layer(rnn_layer2).set_weights(rnn_weights2)
