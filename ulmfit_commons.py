@@ -89,11 +89,12 @@ def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len
                     state_dict['0.rnns.2.module.bias_ih_l0'].cpu().numpy()*2]
 
     if awd_weights == 'on':
-        rnn_weights1.append(state_dict['0.rnns.0.weight_hh_l0_raw'].cpu().numpy().T)
+        pass
+        # rnn_weights1.append(state_dict['0.rnns.0.weight_hh_l0_raw'].cpu().numpy().T)
         # rnn_weights1.append(np.array(False))
-        rnn_weights2.append(state_dict['0.rnns.1.weight_hh_l0_raw'].cpu().numpy().T)
+        # rnn_weights2.append(state_dict['0.rnns.1.weight_hh_l0_raw'].cpu().numpy().T)
         # rnn_weights2.append(np.array(False))
-        rnn_weights3.append(state_dict['0.rnns.2.weight_hh_l0_raw'].cpu().numpy().T)
+        # rnn_weights3.append(state_dict['0.rnns.2.weight_hh_l0_raw'].cpu().numpy().T)
         # rnn_weights3.append(np.array(False))
 
     lm_num.get_layer(rnn_layer1).set_weights(rnn_weights1)
@@ -103,3 +104,19 @@ def save_as_keras(*, state_dict, exp_name, save_path, awd_weights, fixed_seq_len
                                                   state_dict['1.decoder.weight'].cpu().numpy()])
     lm_num.save_weights(os.path.join(save_path, exp_name))
     return lm_num, encoder_num, outmask_num, spm_encoder_model
+
+def apply_awd_eagerly(encoder_num, awd_rate):
+    import tensorflow as tf
+    tf.print("Applying AWD eagerly")
+    rnn1_w = encoder_num.get_layer("AWD_RNN1").variables
+    rnn2_w = encoder_num.get_layer("AWD_RNN2").variables
+    rnn3_w = encoder_num.get_layer("AWD_RNN3").variables
+
+    w1_mask = tf.nn.dropout(tf.fill(rnn1_w[1].shape, 1-awd_rate), rate=awd_rate)
+    rnn1_w[1].assign(w1_mask * rnn1_w[1])
+
+    w2_mask = tf.nn.dropout(tf.fill(rnn2_w[1].shape, 1-awd_rate), rate=awd_rate)
+    rnn2_w[1].assign(w2_mask * rnn2_w[2])
+
+    w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
+    rnn3_w[1].assign(w3_mask * rnn3_w[2])

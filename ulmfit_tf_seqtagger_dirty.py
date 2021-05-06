@@ -6,6 +6,7 @@ import tensorflow_text
 from ptools.lipytools.little_methods import r_jsonl
 from modelling_scripts.ulmfit_tf2_heads import *
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy
+from ulmfit_commons import apply_awd_eagerly
 from lm_tokenizers import LMTokenizerFactory
 
 DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
@@ -75,7 +76,11 @@ def interactive_demo(args, label_map):
         for subword, category in zip(subwords, ret):
             print("{:<15s}{:>4s}".format(subword, label_map[category]))
 
-def train_step(model, loss_fn, optimizer, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
+def train_step(*, model, ulmfit_blob, loss_fn, optimizer, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
+    if ulmfit_blob is not None:
+        ulmfit_blob.apply_awd(0.5)
+    else:
+        apply_awd_eagerly(model, 0.5)
     with tf.GradientTape() as tape:
         y_preds = model(x, training=True)
         loss_value = loss_fn(y_true=y, y_pred=y_preds)
@@ -127,6 +132,7 @@ def main(args):
                                                spm_model_args=spm_args,
                                                fixed_seq_len=args.get('fixed_seq_len'),
                                                also_return_spm_encoder=False)
+        ulmfit_blob = il = kl = None
     ######## VERSION 2 (Baseline): Sequence tagger that has all the ULMFiT's dropouts except the AWD. It uses Keras default
     # LSTM cell implementation, so it's much much faster on a GPU than the proper version. Can be used for quick experiments.
     elif args['model_type'] == 'from_cp_awd_off':
@@ -135,44 +141,49 @@ def main(args):
                                            fixed_seq_len=args.get('fixed_seq_len'),
                                            use_awd=False,
                                            also_return_spm_encoder=False)
+        ulmfit_blob = il = kl = None
 
     ######## VERSION 3 (Serialized): ULMFiT model serialized to a SavedModel - pass the path to 'wyeksportowany200' as model_weights_cp
     elif args['model_type'] == 'from_hub':
-        il = tf.keras.layers.Input(shape=(None,), ragged=True if args.get('fixed_seq_len') is None else False, dtype=tf.int32)
-        # ulmfit_rnn_encoder = ulmfit_rnn_encoder_hub(pretrained_weights=args['model_weights_cp'],
-        #                                    spm_model_args=spm_args,
-        #                                    fixed_seq_len=args.get('fixed_seq_len'),
-        #                                    use_awd=False,
-        #                                    also_return_spm_encoder=False)
-        restored_hub = hub.load(args['model_weights_cp'])
-        ulmfit_rnn_encoder = hub.KerasLayer(restored_hub.encoder_num, trainable=True)
-        # ulmfit_tagger = tf.keras.models.Sequential([tf.keras.layers.Input(shape=(args['fixed_seq_len'],), dtype=tf.int32), ulmfit_rnn_encoder, tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(3))])
+        il, kl, ulmfit_blob = ulmfit_rnn_encoder_hub(pretrained_weights=args['model_weights_cp'],
+                                                     spm_model_args=spm_args,
+                                                     fixed_seq_len=args.get('fixed_seq_len'),
+                                                     use_awd=False,
+                                                     also_return_spm_encoder=False)
+        ulmfit_rnn_encoder = None
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-
-    ulmfit_rnn_encoder.summary()
-    ulmfit_tagger = ulmfit_sequence_tagger(enc_num=ulmfit_rnn_encoder, num_classes=args['num_classes'])
-    #ulmfit_tagger = ulmfit_encoder_sequential(pretrained_weights=args['model_weights_cp'], fixed_seq_len=args['fixed_seq_len'])
-    #ulmfit_tagger.add(tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(3, activation='softmax')))
+    ulmfit_tagger = ulmfit_sequence_tagger(enc_num=ulmfit_rnn_encoder,
+                                           model_type=args['model_type'],
+                                           num_classes=args['num_classes'],
+                                           fixed_seq_len=args.get('fixed_seq_len'),
+                                           input_layer=il,
+                                           keras_layer=kl)
+    if ulmfit_rnn_encoder is not None:
+        ulmfit_rnn_encoder.summary()
     ulmfit_tagger.summary()
     print(f"Shapes - sequence inputs: {sequence_inputs.shape}, labels: {subword_labels.shape}")
     optimizer = tf.keras.optimizers.Adam()
-    if args.get('fixed_seq_len') is not None:
-        ############### KERAS model.fit WORKS OUT-OF THE BOX WITH FIXED-LENGTH SEQUENCES #############
+    if args.get('fixed_seq_len') is None:
+        loss_fn = RaggedSparseCategoricalCrossEntropy()
+    else:
         loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-        ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
-                        filepath = args['out_cp_name'],
-                        save_weights_only=True,
-                        save_freq=25,
-                        monitor='sparse_categorical_accuracy',
-                        mode='auto',
-                        save_best_only=True)
-        ulmfit_tagger.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
-        ulmfit_tagger.fit(sequence_inputs, subword_labels, epochs=1, batch_size=args['batch_size'],
-                          callbacks=[ckpt_cb])
+    if False:
+        pass
+    # if args.get('fixed_seq_len') is not None and args.get('model_type') != 'from_hub':
+    #     ############### KERAS model.fit WORKS OUT-OF THE BOX WITH FIXED-LENGTH SEQUENCES #############
+    #     ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
+    #                     filepath = args['out_cp_name'],
+    #                     save_weights_only=True,
+    #                     save_freq=25,
+    #                     monitor='sparse_categorical_accuracy',
+    #                     mode='auto',
+    #                     save_best_only=True)
+    #     ulmfit_tagger.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
+    #     ulmfit_tagger.fit(sequence_inputs, subword_labels, epochs=1, batch_size=args['batch_size'],
+    #                       callbacks=[ckpt_cb])
     else:
         ##### For RaggedTensors and variable-length sequences we have to use the GradientTape ########
-        loss_fn = RaggedSparseCategoricalCrossEntropy()
         ulmfit_tagger.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
         batch_size = args['batch_size']
         steps_per_epoch = sequence_inputs.shape[0] // batch_size
@@ -181,10 +192,12 @@ def main(args):
                 if step % 25 == 0:
                     print("Saving weights...")
                     ulmfit_tagger.save_weights(args['out_cp_name'])
-                train_step(ulmfit_tagger, loss_fn, optimizer,
-                           sequence_inputs[(step*batch_size):(step+1)*batch_size],
-                           subword_labels[(step*batch_size):(step+1)*batch_size],
-                           (step, steps_per_epoch))
+                train_step(model=ulmfit_tagger,
+                           ulmfit_blob=ulmfit_blob,
+                           loss_fn=loss_fn, optimizer=optimizer,
+                           x=sequence_inputs[(step*batch_size):(step+1)*batch_size],
+                           y=subword_labels[(step*batch_size):(step+1)*batch_size],
+                           step_info=(step, steps_per_epoch))
             # TODO: add shuffling after every epoch
     return ulmfit_tagger, sequence_inputs, subword_labels, loss_fn, optimizer
 
