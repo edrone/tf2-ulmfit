@@ -16,7 +16,7 @@ from .awdlstm_tf2 import WeightDropLSTMCell
 # 5) [DONE] Heads for finetuning LM + Head for text classification
 # 6) [WON'T DO] Cross-batch statefulness
 
-def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
+def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, flatten_ragged_outputs=True, spm_args={}):
     """ This function reconstructs an ULMFiT as a model trainable in Keras. If `fixed_seq_len` is None,
         it uses RaggedTensors. Otherwise it sets a fixed sequence length on inputs and uses 1 (not zero!)
         for padding. As of TF 2.4.1 only the fixed-length version is serializable into a SavedModel.
@@ -106,7 +106,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
 
     if use_awd:
         # AWD LSTM cells as per the said paper
-        AWD_LSTM_Cell1 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
+        AWD_LSTM_Cell1 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5, verbose=True)
         rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
         rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
 
@@ -153,7 +153,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, spm_args={}):
     ##### ALL MODELS ZUSAMMEN DO KUPY TOGETHER #####
     spm_encoder_model = tf.keras.Model(inputs=string_input_layer, outputs=numericalized_layer)
     lm_model_num = tf.keras.Model(inputs=middle_input, outputs=lm)
-    if fixed_seq_len is None: # RaggedTensors as outputs are not serializable when using signatures. This *may* be fixed in TF 2.5.1
+    if fixed_seq_len is None and flatten_ragged_outputs is True: # RaggedTensors as outputs are not serializable when using signatures. This *may* be fixed in TF 2.5.1
         encoder_num = tf.keras.Model(inputs=middle_input, outputs=[rnn_encoder.flat_values, rnn_encoder.row_splits])
     else:
         encoder_num = tf.keras.Model(inputs=middle_input, outputs=rnn_encoder)
@@ -274,6 +274,8 @@ class ExportableULMFiT(tf.keras.Model):
     #        <s> The cat sat on a mat. </s> <s> And spat. </s>
     #    """
     #    self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
+
+
 
 class ExportableULMFiTRagged(ExportableULMFiT):
     """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
