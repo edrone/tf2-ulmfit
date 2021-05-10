@@ -109,7 +109,7 @@ if __name__ == "__main__":
                       "into one big stream!")
     argz.add_argument("--pretokenized-valid", required=False, help="Path to a pretokenized and numericalized validation corpus. " \
                       "Same tokenization rules apply as for the training corpus.")
-    argz.add_argument("--spm-model-file", required=True, help="Fixme: needed only to instantiate Keras saver") \
+    argz.add_argument("--spm-model-file", required=True, help="Fixme: needed only to instantiate Keras saver")
     argz.add_argument("--pretrained-model", required=False, help="Path to a pretrained FastAI/PyTorch model. " \
                       "Use this as input to Keras conversion (state dict) or if you want to resume pretraining (pth model).")
     argz.add_argument("--min-seq-len", default=10, type=int, help="Minimal sentence length in the original corpus")
