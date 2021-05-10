@@ -79,7 +79,10 @@ def main(args):
                    'hidden_p': 0.2})
     ulmfit_model = get_language_model(AWD_LSTM, args['vocab_size'], config=config) # produces a 3-layer LSTM as per the ULMFit paper
     opt_func = partial(Adam, wd=0.1, eps=1e-7)
-    callbacks = [MixedPrecision(), GradientClip(0.1)] + rnn_cbs(alpha=2, beta=1)
+    callbacks = [MixedPrecision(),
+                 GradientClip(0.1),
+                 SaveModelCallback(fname=args['exp_name']+'_fastai_ckpt', every_epoch=True) \
+                ] + rnn_cbs(alpha=2, beta=1)
     learner_obj = Learner(data_loaders, ulmfit_model, loss_func=CrossEntropyLossFlat(), opt_func=opt_func, \
                           cbs=callbacks, metrics=[accuracy, Perplexity()])
     print(learner_obj.model)
@@ -89,16 +92,18 @@ def main(args):
     else:
         learner_obj = _run_pretraining(learner_obj, args)
     print("Saving the ULMFit model in FastAI format ...")
+    os.makedirs(args['save_path'], exist_ok=True)
     learner_obj.save(os.path.join(args['save_path'], args['exp_name'])) # .pth will be added automatically
     # print("Saving the ULMFit model's weights into a pickle ...")
     # pickle.dump(learner_obj.model.state_dict(), open(os.path.join(args['save_path'], f"{args['exp_name']}_state_dict.p"), 'wb'))
     if args.get('export_to_tf2'):
         print("Saving the ULMFit model to a Keras checkpoint...")
-        save_as_keras(learner_obj.model.state_dict(),
-                args.get['exp_name'],
-                args.get['save_path'],
-                'on',
-                args.get['spm_model_file'])
+        save_as_keras(state_dict=learner_obj.model.state_dict(),
+                      exp_name=args['exp_name'],
+                      save_path=args['save_path'],
+                      awd_weights='on',
+                      fixed_seq_len=None,
+                      spm_model_file=args['spm_model_file'])
         print("Done")
     return learner_obj
 
