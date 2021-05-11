@@ -57,7 +57,45 @@ def recase(text, min_span=4, cap_first=False):
         else:
             ret.append(splits[pos])
             pos += 1
-    return " ".join(ret)
+    ret = " ".join(ret)
+    if cap_first:
+        ret = ret[0].upper() + ret[1:]
+    return ret
+
+def recase_single(text):
+    """ Converts single UPPERCASE tokens added for emphasis into a more likely form:
+
+        Downcases tokens and keeps the first letter capitalized if any surrounding token is capitalized as well
+    """
+    ret = []
+    splits = text.split()
+    i = 0
+    for i, token in enumerate(splits):
+        if i == 0:
+            if token.isupper() and token.isalpha():
+                ret.append(token[0] + token[1:].lower())
+            else:
+                ret.append(token)
+        elif i == len(splits)-1:
+            if token.isupper() and token.isalpha():
+                if splits[i-1][0].isupper():
+                    ret.append(token[0] + token[1:].lower())
+                else:
+                    ret.append(token.lower())
+            else:
+                ret.append(token)
+        else:
+            if token.isupper() and token.isalpha():
+                if splits[i-1][0].isupper() or splits[i+1][0].isupper():
+                    ret.append(token[0] + token[1:].lower())
+                else:
+                    ret.append(token.lower())
+            else:
+                ret.append(token)
+    ret = " ".join(ret)
+    return ret
+
+
 
 def attempt_split(text, hunspell_obj, min_len=20):
     """ Attempts to split words that were accidentally merged, e.g.
