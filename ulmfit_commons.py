@@ -45,7 +45,7 @@ def get_fastai_tensors(args):
                 cnt += 1
     return L_tensors_train, L_tensors_valid
 
-def save_as_keras(state_dict, exp_name, save_path, spm_model_file):
+def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file):
     """
     Creates an ULMFit inference model using Keras layers and copies weights from FastAI's learner.model.state_dict() there.
 
@@ -57,7 +57,13 @@ def save_as_keras(state_dict, exp_name, save_path, spm_model_file):
     import tensorflow as tf
     from modelling_scripts.ulmfit_tf2 import tf2_ulmfit_encoder
 
-    lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=None, spm_model_file=spm_model_file)
+    spm_args = {
+        'spm_model_file': spm_model_file,
+        'add_bos': True,
+        'add_eos': True,
+        'lumped_sents_separator': '[SEP]'
+    }
+    lm_num, encoder_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=None, spm_args=spm_args)
 
     lm_num.get_layer('ulmfit_embeds').set_weights([state_dict['0.encoder.weight'].cpu().numpy()])
     rnn_weights1 = [state_dict['0.rnns.0.module.weight_ih_l0'].cpu().numpy().T,
