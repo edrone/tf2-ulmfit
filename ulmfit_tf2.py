@@ -277,6 +277,7 @@ class ExportableULMFiTRagged(tf.keras.Model):
     def __init__(self, encoder_num, outmask_num, spm_encoder_model):
         super().__init__()
         self.encoder_num = encoder_num
+        self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
 
     # def __call__(self, x):
