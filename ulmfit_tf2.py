@@ -3,9 +3,7 @@ import tensorflow_text as text
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import LSTMCell
-from .awdlstm_tf2 import WeightDropLSTMCell
-
-# MAX_SEQ_LEN=512
+# from .awdlstm_tf2 import WeightDropLSTMCell
 
 # TODO:
 # 1) [DONE] Weight tying
@@ -16,7 +14,7 @@ from .awdlstm_tf2 import WeightDropLSTMCell
 # 5) [DONE] Heads for finetuning LM + Head for text classification
 # 6) [WON'T DO] Cross-batch statefulness
 
-def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, flatten_ragged_outputs=True, spm_args={}):
+def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_args={}):
     """ This function reconstructs an ULMFiT as a model trainable in Keras. If `fixed_seq_len` is None,
         it uses RaggedTensors. Otherwise it sets a fixed sequence length on inputs and uses 1 (not zero!)
         for padding. As of TF 2.4.1 only the fixed-length version is serializable into a SavedModel.
@@ -104,29 +102,15 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, use_awd=True, flatten_ragged_outpu
 
     ###### STAGE 2 - RECURRENT LAYERS ######
 
-    if use_awd:
-        # AWD LSTM cells as per the said paper
-        AWD_LSTM_Cell1 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5, verbose=True)
-        rnn1 = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")
-        rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
+    # Plain (TF optimized) LSTM cells - we will apply AWD manually in the training loop
+    rnn1 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="AWD_RNN1")
+    rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
 
-        AWD_LSTM_Cell2 = WeightDropLSTMCell(1152, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-        rnn2 = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")
-        rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
+    rnn2 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="AWD_RNN2")
+    rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
 
-        AWD_LSTM_Cell3 = WeightDropLSTMCell(400, kernel_initializer='glorot_uniform', weight_dropout=0.5)
-        rnn3 = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")
-        rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
-    else:
-        # Plain (TF optimized) LSTM cells
-        rnn1 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM1")
-        rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1") # yeah, this is quirky, but that's what ULMFit authors propose
-
-        rnn2 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM2")
-        rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
-
-        rnn3 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform'), return_sequences=True, name="Plain_LSTM3")
-        rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
+    rnn3 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform'), return_sequences=True, name="AWD_RNN3")
+    rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
 
 
     ###### BASIC MODEL: From a numericalized input to RNN encoder vectors ######
@@ -170,7 +154,9 @@ class ExportableULMFiT(tf.keras.Model):
 
     Serialization procedure:
 
-    lm_num, enc_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_model_file='plwiki100-sp35k.model', fixed_seq_len=100)
+    spm_args = {'spm_model_file': '/tmp/plwiki100-sp35k.model', 'add_bos': True, 'add_eos': True,
+                'lumped_sents_separator': '[SEP]'}
+    lm_num, enc_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=200, spm_args=spm_args)
     tf.keras.backend.set_learning_phase(0) # very important!!! do not skip!
     exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model)
     convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder,
@@ -205,25 +191,18 @@ class ExportableULMFiT(tf.keras.Model):
 
     def __init__(self, encoder_num, outmask_num, spm_encoder_model):
         super().__init__()
-        # self.lm_model_num = lm_model_num
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
 
-        # self.lm_model_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.lm_model_num(self.spm_encoder_model.outputs))
         self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
-        # self.masker_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.masker_num(self.spm_encoder_model.outputs))
 
     @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def __call__(self, x):
         tf.print("WARNING: to obtain a trainable model, please wrap the `string_encoder` " \
-                 "or `numericalized_encoder` signature into a hub.KerasLayer(..., trainable=True) object. \n" \
-                 "If you are seralizing a model with RaggedTensors, wrap the Keras objects directly "\
-                 "(ulmfit_blob.encoder_str or ulmfit_blob.encoder_num depending on the type of inputs), not their " \
-                 "signatures")
+                 "or `numericalized_encoder` signature into a hub.KerasLayer(..., trainable=True) object. \n")
         return self.string_encoder(x)
 
-    #@tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
     @tf.function(input_signature=[tf.TensorSpec([None, None], dtype=tf.int32)])
     def numericalized_encoder(self, numericalized):
         mask = self.masker_num(numericalized)
@@ -305,17 +284,18 @@ class ExportableULMFiTRagged(tf.keras.Model):
     #     return self.numericalized_encoder(rag_num)
 
     # I have no clue how to wrap this around a hub.KerasLayer - please help!
+    #@tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
     @tf.function(input_signature=[[tf.TensorSpec([None,], dtype=tf.int32),
                                    tf.TensorSpec([None,], dtype=tf.int64)]])
     def numericalized_encoder(self, x):
         flat_values=x[0]
         row_splits=x[1]
-        wynik = self.encoder_num(tf.RaggedTensor.from_row_splits(flat_values, row_splits))
-        return {'output_flat': wynik[0],
-                'output_rows': wynik[1]
+        ret = self.encoder_num(tf.RaggedTensor.from_row_splits(flat_values, row_splits))
+        return {'output_flat': ret[0],
+                'output_rows': ret[1]
         }
 
-    # @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
     def string_numericalizer(self, string_inputs):
         numerical_representation = self.spm_encoder_model(string_inputs)
         mask = self.masker_num(numerical_representation)
@@ -337,8 +317,8 @@ class ExportableULMFiTRagged(tf.keras.Model):
 
         w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
         rnn3_w[1].assign(w3_mask * rnn3_w[2])
+ 
 
-    
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
     def __init__(self, name=None, spm_path=None, fixedlen=None,
