@@ -6,6 +6,7 @@ import numpy as np
 import heapq
 import readline
 import sentencepiece as spm
+from ..ulmfit_tf2_heads import ulmfit_rnn_encoder_native, ulmfit_rnn_encoder_hub
 
 """
 Runs an interactive demo of a pretrained language model.
@@ -62,18 +63,18 @@ def predict_next_n_pieces(model, spmproc, sent, args):
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         print(piece_ids)
         print(f"Encoded as {len(piece_ids)} pieces: {[spmproc.id_to_piece(piece) for piece in piece_ids]}")
-        if args.get('max_seq_len') is not None: # model saved with a fixed sequence length, so adding padding
-            last_token_idx = len(encoded) - 1 if args['padding_direction'] == 'post' \
-                else args['max_seq_len'] - 1
-            x_hat = tf.keras.preprocessing.sequence.pad_sequences(
-                np.array([piece_ids]), \
-                maxlen=args['max_seq_len'],
-                value=PAD_ID,
-                padding=args['padding_direction']
-            )
-        else:
-            x_hat = tf.ragged.constant([piece_ids])
-            last_token_idx = len(piece_ids) - 1
+        # if args.get('max_seq_len') is not None: # model saved with a fixed sequence length, so adding padding
+        #     last_token_idx = len(encoded) - 1 if args['padding_direction'] == 'post' \
+        #         else args['max_seq_len'] - 1
+        #     x_hat = tf.keras.preprocessing.sequence.pad_sequences(
+        #         np.array([piece_ids]), \
+        #         maxlen=args['max_seq_len'],
+        #         value=PAD_ID,
+        #         padding=args['padding_direction']
+        #     )
+        #else:
+        x_hat = tf.ragged.constant([piece_ids])
+        last_token_idx = len(piece_ids) - 1
         y_hat = model.predict(x_hat)
 
         next_k_piece_ids = heapq.nlargest(args['beam_width'], \
@@ -90,21 +91,34 @@ def predict_next_n_pieces(model, spmproc, sent, args):
         piece_ids.append(next_k_piece_ids[0])
 
 def main(args):
+    spm_model_args = {
+        'spm_model_file': args['spm_model_file'],
+        'add_bos': args.get('add_bos') or False,
+        'add_eos': args.get('add_eos') or False,
+        'lumped_sents_separator': '[SEP]'
+    }
     spmproc = spm.SentencePieceProcessor(args['spm_model_file'])
     spmproc.SetEncodeExtraOptions(get_spm_extra_opts(args))
     logging.info(f"SPM processor detected vocab size of {spmproc.vocab_size}. First 10 tokens:")    
     logging.info(str([spmproc.id_to_piece(i) for i in range(10)]))
     logging.info("Restoring a pretrained language model")    
-    simple_model = tf.keras.models.load_model(args['pretrained_model'])
-    simple_model.summary()
+    if args['model_type'] == 'from_cp':
+        lm_num = ulmfit_rnn_encoder_native(pretrained_weights=args['pretrained_model'], 
+                                           spm_model_args=spm_model_args,
+                                           also_return_spm_encoder=False,
+                                           return_lm_head=True)
+    else:
+        raise NotImplementedError("Boo!")
+    lm_num.summary()
     readline.parse_and_bind('set editing-mode vi')
     while True:
         sent = input("Write a sentence to complete: ")
-        predict_next_n_pieces(simple_model, spmproc, sent, args)
+        predict_next_n_pieces(lm_num, spmproc, sent, args)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained-model", required=True, help="Path to a .hdf5 file containing the pretrained language model")
+    parser.add_argument("--pretrained-model", required=True, help="Path to Keras weights for ULMFiT or the SavedModel (ragged version)")
+    parser.add_argument("--model-type", required=True, default='from_cp', choices=['from_cp', 'from_hub'], help="Input model format")
     parser.add_argument("--spm-model-file", required=True, help="SPM .model file")
     parser.add_argument("--add-bos", required=False, action='store_true', help="Will add <s> tokens")
     parser.add_argument("--add-eos", required=False, action='store_true', help="Will add </s> tokens. Should generally not be added for prediction/demo")
