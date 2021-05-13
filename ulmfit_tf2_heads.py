@@ -7,7 +7,7 @@ from tensorflow.python.keras.engine import keras_tensor
 from .ulmfit_tf2 import *
 
 def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args,
-                              also_return_spm_encoder=False):
+                              also_return_spm_encoder=False, return_lm_head=False):
     """ Returns an ULMFiT encoder from Python code """
     print("Building model from Python code (not tf.saved_model)...")
     lm_num, enc_num, _, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=fixed_seq_len, spm_args=spm_model_args,
@@ -17,10 +17,16 @@ def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, sp
         lm_num.load_weights(pretrained_weights)
     else:
         print("!!! THE MODEL WEIGHTS ARE UNINITIALIZED !!! Make sure to restore them from file.")
-    if also_return_spm_encoder is True:
-        return enc_num, spm_encoder_model
+    if return_lm_head is True:
+        if also_return_spm_encoder is True:
+            return lm_num, spm_encoder_model
+        else:
+            return lm_num
     else:
-        return enc_num
+        if also_return_spm_encoder is True:
+            return enc_num, spm_encoder_model
+        else:
+            return enc_num
 
 def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args=None,
                               also_return_spm_encoder=False):
