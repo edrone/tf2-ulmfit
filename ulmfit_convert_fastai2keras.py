@@ -18,11 +18,11 @@ def main(args):
     print("Exported weights successfully")
     tf.keras.backend.set_learning_phase(0)
     if args.get('fixed_seq_len') is None:
-        exportable = ExportableULMFiTRagged(encoder_num, outmask_num, spm_encoder_model)
+        exportable = ExportableULMFiTRagged(encoder_num, outmask_num, spm_encoder_model, state_dict['1.decoder.bias'])
         convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder}
         tf.saved_model.save(exportable, os.path.join(args['out_path'], 'saved_model'), signatures=convenience_signatures)
     else:
-        exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model)
+        exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model, state_dict['1.decoder.bias'])
         convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder,
                                 'string_encoder': exportable.string_encoder,
                                 'spm_processor': exportable.string_numericalizer}
