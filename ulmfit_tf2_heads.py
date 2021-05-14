@@ -17,19 +17,14 @@ def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, sp
         lm_num.load_weights(pretrained_weights)
     else:
         print("!!! THE MODEL WEIGHTS ARE UNINITIALIZED !!! Make sure to restore them from file.")
-    if return_lm_head is True:
-        if also_return_spm_encoder is True:
-            return lm_num, spm_encoder_model
-        else:
-            return lm_num
+    ret_layer = lm_num if return_lm_head is True else enc_num
+    if also_return_spm_encoder is True:
+        return ret_layer, spm_encoder_model
     else:
-        if also_return_spm_encoder is True:
-            return enc_num, spm_encoder_model
-        else:
-            return enc_num
+        return ret_layer
 
 def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args=None,
-                              also_return_spm_encoder=False):
+                              also_return_spm_encoder=False, return_lm_head=False):
     """ Returns an ULMFiT encoder from a serialized SavedModel  """
     if also_return_spm_encoder:
         print(f"Info: The SPM layer is baked into the SavedModel. It will not be returned separately.")
@@ -41,13 +36,30 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         il = tf.keras.layers.Input(shape=(None,), ragged=True, name="numericalized_input", dtype=tf.int32)
         #il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
         # kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
-        kl = hub.KerasLayer(restored_hub.encoder_num)(il)
+        kl_restored = hub.KerasLayer(restored_hub.encoder_num, trainable=True)(il)
+        if return_lm_head:
+            if not hasattr(restored_hub, 'lm_head_biases'):
+                raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
+            rt = tf.RaggedTensor.from_row_splits(kl_restored[0], kl_restored[1])
+            reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
+            lm_head_ragged = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))(rt)
+            kl = tf.keras.models.Model(inputs=il, outputs=lm_head_ragged)
+            kl.layers[-1].set_weights([restored_hub.lm_head_biases.value()])
+        else:
+            kl = kl_restored
         # model = tf.keras.models.Model(inputs=il, outputs=rec_ragged_tensor)
     else:
         il = tf.keras.layers.Input(shape=(fixed_seq_len,), name="numericalized_input", dtype=tf.int32)
-        kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
-        #model = tf.keras.models.Model(inputs=il, outputs=kl)
-        #model = tf.keras.models.Model(inputs=il, outputs=kl)
+        kl_restored = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
+        if return_lm_head:
+            if not hasattr(restored_hub, 'lm_head_biases'):
+                raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
+            reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
+            lm_head = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))(kl_restored)
+            kl = tf.keras.models.Model(inputs=il, outputs=lm_head)
+            kl.layers[-1].set_weights([restored_hub.lm_head_biases.value()])
+        else:
+            kl = kl_restored
     return il, kl, restored_hub
 
 def ulmfit_sequence_tagger_head(*, enc_num, model_type='from_cp', num_classes=3, fixed_seq_len=None, **kwargs):

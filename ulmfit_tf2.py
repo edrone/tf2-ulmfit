@@ -189,11 +189,12 @@ class ExportableULMFiT(tf.keras.Model):
     dropout on the output).
     """
 
-    def __init__(self, encoder_num, outmask_num, spm_encoder_model):
+    def __init__(self, encoder_num, outmask_num, spm_encoder_model, lm_head_biases=None):
         super().__init__()
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
+        self.lm_head_biases=tf.Variable(initial_value=lm_head_biases) if lm_head_biases is not None else None
 
         self.encoder_str = tf.keras.Model(inputs=self.spm_encoder_model.inputs, outputs=self.encoder_num(self.spm_encoder_model.outputs))
 
@@ -274,11 +275,12 @@ class ExportableULMFiT(tf.keras.Model):
 
 class ExportableULMFiTRagged(tf.keras.Model):
     """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
-    def __init__(self, encoder_num, outmask_num, spm_encoder_model):
+    def __init__(self, encoder_num, outmask_num, spm_encoder_model, lm_head_biases=None):
         super().__init__()
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
+        self.lm_head_biases=tf.Variable(initial_value=lm_head_biases) if lm_head_biases is not None else None
 
     # def __call__(self, x):
     #     rag_num = self.string_numericalizer(x)['numericalized']
@@ -525,6 +527,8 @@ class TiedDense(tf.keras.layers.Layer):
     def __init__(self, reference_layer, activation, **kwargs):
         self.ref_layer = reference_layer
         self.biases = None
+        self.input_dim = None
+        self.output_dim = None
         self.activation_fn = tf.keras.activations.get(activation)
         super().__init__(**kwargs)
         self._supports_masking = self.supports_masking = True
@@ -533,24 +537,27 @@ class TiedDense(tf.keras.layers.Layer):
         #self.biases = self.add_weight(name='tied_bias',
         #                              shape=[self.ref_layer.weights[0].shape[0]],
         #                              initializer='zeros')
+        self.input_dim = self.ref_layer.variables[0].shape[0]
+        self.output_dim = self.ref_layer.variables[0].shape[1]
         self.biases = self.add_weight(name='tied_bias',
-                                      shape=[self.ref_layer.input_dim],
+                                      shape=[self.input_dim],
                                       initializer='zeros')
         super().build(input_shape)
 
     def call(self, inputs):
         try:
-            wx = tf.matmul(inputs, self.ref_layer.weights[0], transpose_b=True)
+            wx = tf.matmul(inputs, self.ref_layer.variables[0], transpose_b=True)
             z = self.activation_fn(wx + self.biases)
         except:
             tf.print("Warning, warning... - FORWARD PASS GOES TO NULL!")
-            z = tf.matmul(inputs, tf.zeros((self.ref_layer.input_dim, self.ref_layer.output_dim)), transpose_b=True)
+            # z = tf.matmul(inputs, tf.zeros((self.ref_layer.input_dim, self.ref_layer.output_dim)), transpose_b=True)
+            z = tf.matmul(inputs, tf.zeros((self.input_dim, self.output_dim)), transpose_b=True)
         return z
 
     def compute_output_shape(self, input_shape):
         # tf.print(f"For TIED DENSE the input shape is {input_shape}")
         # return (input_shape[0], tf.shape(self.ref_layer.weights[0])[0])
-        return (input_shape[0], self.ref_layer.weights[0].shape[0])
+        return (input_shape[0], self.ref_layer.variables[0].shape[0])
         # return (input_shape[0], 35000)
 
     def get_config(self):
