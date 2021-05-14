@@ -129,6 +129,38 @@ def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_
         ulmfit_rnn_encoder.summary()
     return ulmfit_tagger, hub_object
 
+def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None):
+
+    ######## VERSION 1: ULMFiT last state built from Python code - pass the path to a weights directory
+    if model_type == 'from_cp':
+        ulmfit_rnn_encoder = ulmfit_rnn_encoder_native(pretrained_weights=pretrained_encoder_weights,
+                                               spm_model_args=spm_model_args,
+                                               fixed_seq_len=fixed_seq_len,
+                                               also_return_spm_encoder=False)
+        if fixed_seq_len is None:
+            flat_vals = ulmfit_rnn_encoder.output.flat_values
+            row_limits = tf.math.subtract(ulmfit_rnn_encoder.output.row_limits(), 1, name="select_last_ragged_idx")
+            last_hidden_state = tf.gather(flat_vals, row_limits, name="last_hidden_state_ragged")
+        else:
+            last_hidden_state = ulmfit_rnn_encoder.output[:, -1, :]
+        last_hidden_state_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=last_hidden_state)
+
+    ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
+    elif model_type == 'from_hub':
+        il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
+                                                     spm_model_args=None,
+                                                     fixed_seq_len=fixed_seq_len,
+                                                     also_return_spm_encoder=False)
+        if fixed_seq_len is None:
+            row_limits = kl[1][1:] - 1 # equivalent to row_splits - get the last index in the ragged dimension
+            last_hidden_state = tf.gather(kl[0], row_limits, name="last_hidden_state_ragged")
+        else:
+            last_hidden_state = kl.output[:, -1, :]
+        last_hidden_state_model = tf.keras.models.Model(inputs=il, outputs=last_hidden_state)
+    else:
+        raise ValueError(f"Unknown model type {args['model_type']}")
+    return last_hidden_state_model
+
 ############# THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
 
 def ulmfit_tagger_functional(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None):
