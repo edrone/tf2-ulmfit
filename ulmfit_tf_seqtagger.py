@@ -128,32 +128,6 @@ def main(args):
                                                                         padding='post', truncating='post', value=1, dtype=int)
         subword_labels = tf.keras.preprocessing.sequence.pad_sequences(subword_labels, maxlen=args['fixed_seq_len'],
                                                                        padding='post', truncating='post', value=0, dtype=int)
-
-    # ######## VERSION 1: ULMFiT sequence tagger model built from Python code - pass the path to a weights directory
-    # if args['model_type'] == 'from_cp':
-    #     ulmfit_rnn_encoder = ulmfit_rnn_encoder_native(pretrained_weights=args['model_weights_cp'],
-    #                                            spm_model_args=spm_args,
-    #                                            fixed_seq_len=args.get('fixed_seq_len'),
-    #                                            also_return_spm_encoder=False)
-    #     hub_object = il = kl = None
-
-    # ######## VERSION 2: ULMFiT sequence tagged built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
-    # elif args['model_type'] == 'from_hub':
-    #     il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=args['model_weights_cp'],
-    #                                                  spm_model_args=None,
-    #                                                  fixed_seq_len=args.get('fixed_seq_len'),
-    #                                                  also_return_spm_encoder=False)
-    #     ulmfit_rnn_encoder = None
-    # else:
-    #     raise ValueError(f"Unknown model type {args['model_type']}")
-    # ulmfit_tagger = ulmfit_sequence_tagger_head(enc_num=ulmfit_rnn_encoder,
-    #                                             model_type=args['model_type'],
-    #                                             num_classes=args['num_classes'],
-    #                                             fixed_seq_len=args.get('fixed_seq_len'),
-    #                                             input_layer=il,
-    #                                             keras_layer=kl)
-    # if ulmfit_rnn_encoder is not None:
-    #     ulmfit_rnn_encoder.summary()
     ulmfit_tagger, hub_object = ulmfit_sequence_tagger(model_type=args['model_type'],
                                                        pretrained_encoder_weights=args['model_weights_cp'],
                                                        spm_model_args=spm_args,
@@ -162,10 +136,8 @@ def main(args):
     ulmfit_tagger.summary()
     print(f"Shapes - sequence inputs: {sequence_inputs.shape}, labels: {subword_labels.shape}")
     optimizer = tf.keras.optimizers.Adam()
-    if args.get('fixed_seq_len') is None:
-        loss_fn = RaggedSparseCategoricalCrossEntropy()
-    else:
-        loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
+    loss_fn = RaggedSparseCategoricalCrossEntropy() if args.get('fixed_seq_len') is None \
+                                                    else tf.keras.losses.SparseCategoricalCrossentropy()
 
     # ##### This works only with fixed-length sequences:
     # ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
