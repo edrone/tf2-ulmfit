@@ -1,4 +1,4 @@
-import os
+import os, shutil
 import argparse
 import tensorflow as tf
 from ulmfit_commons import save_as_keras
@@ -8,6 +8,7 @@ from fastai.callback.all import *
 from fastai.text.all import *
 
 def main(args):
+    os.makedirs(args['out_path'], exist_ok=True)
     state_dict = torch.load(open(args['pretrained_model'], 'rb'), map_location='cpu')
     state_dict = state_dict['model']
     exp_name = os.path.splitext(os.path.basename(args['pretrained_model']))[0]
@@ -27,11 +28,18 @@ def main(args):
                                 'string_encoder': exportable.string_encoder,
                                 'spm_processor': exportable.string_numericalizer}
         tf.saved_model.save(exportable, os.path.join(args['out_path'], 'saved_model'), signatures=convenience_signatures)
-    print("Exported SavedModel successfully. Conversion complete")
+    print("Exported SavedModel successfully.")
+    os.makedirs(os.path.join(args['out_path'], 'fastai_model'))
+    shutil.copy2(args['pretrained_model'], os.path.join(args['out_path'], 'fastai_model/'))
+    print("FastAI model copied.")
+    os.makedirs(os.path.join(args['out_path'], 'spm_model'))
+    shutil.copy2(args['spm_model_file'], os.path.join(args['out_path'], 'spm_model/'))
+    shutil.copy2(args['spm_model_file'].replace(".model", ".vocab"), os.path.join(args['out_path'], 'spm_model/'))
+    print("SPM model copied. Conversion complete.")
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser(description="Loads weights from an ULMFiT .pth file trained using FastAI into a Keras model.\n" \
-                                               "This script produce two output formats: weights-only and a SavedModel")
+                                               "This script will produce four subdirectories: 1) Keras weights, 2) SavedModel, 3) SPM model, 4) FastAI model")
     argz.add_argument("--pretrained-model", required=True, help="Path to a pretrained FastAI model (.pth)")
     argz.add_argument("--out-path", required=True, help="Output directory where the converted TF model weights will be saved")
     argz.add_argument("--fixed-seq-len", type=int, required=False, help="(SavedModel only) Fixed sequence length. If unset, the RNN encoder will output ragged tensors.")
