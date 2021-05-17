@@ -178,6 +178,7 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
             rpooler = RaggedConcatPooler(name="RaggedConcatPooler")(ulmfit_rnn_encoder.output)
         else:
             rpooler = ConcatPooler(name="ConcatPooler")(ulmfit_rnn_encoder.output)
+        hub_object=None
 
     ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
     elif model_type == 'from_hub':
@@ -203,9 +204,9 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
         document_classifier_model = tf.keras.models.Model(inputs=il, outputs=fc_final)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-    return document_classifier_model
+    return document_classifier_model, hub_object
 
-############# THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
+########### ## THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
 
 def ulmfit_tagger_functional(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None):
     print("Building a regular LSTM model using only standard Keras blocks...")
