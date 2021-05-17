@@ -694,3 +694,69 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
     def from_config(cls, config):
       return cls(**config)
 
+@tf.keras.utils.register_keras_serializable()
+class ConcatPooler(tf.keras.layers.Layer):
+    def __init__(self):
+        super().__init__()
+        self.trainable = False
+        self._supports_ragged_inputs = False # for compatibility with TF 2.2
+    
+    def build(self, input_shape):
+        print(">>>> INSIDE BUILD / RaggedConcatPooler <<<< ")
+    
+    def call(self, inputs, training=None): # inputs is a fixed-length tensor
+        last_hidden_state = inputs[:, -1, :] # nevermind padding - Keras mask ensures the last meaningful value is repeated until the sequence's end
+        max_pooled = tf.math.reduce_max(inputs, axis=1)
+        mean_pooled = tf.math.reduce_mean(inputs, axis=1)
+        ret = tf.concat([last_hidden_state, max_pooled, mean_pooled], axis=1)
+        return ret
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], input_shape[2]*3)
+
+    def get_config(self):
+        cfg = super().get_config()
+        return cfg
+
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)
+
+@tf.keras.utils.register_keras_serializable()
+class RaggedConcatPooler(tf.keras.layers.Layer):
+    def __init__(self, inputs_are_flattened=False, **kwargs):
+        super().__init__(**kwargs)
+        self.trainable = False
+        self._supports_ragged_inputs = True # for compatibility with TF 2.2
+        self.inputs_are_flattened = inputs_are_flattened # set this to True if using the TFHub version
+
+    def build(self, input_shape):
+        print(">>>> INSIDE BUILD / ConcatPooler <<<< ")
+
+    def call(self, inputs, training=None): # inputs is a ragged tensor
+        if self.inputs_are_flattened:
+            flat_vals = inputs[0]
+            row_limits = inputs[1][1:] - 1 # this is row splits from first index minus 1
+            last_hidden_states = tf.gather(flat_vals, row_limits)
+            ragged_tensor = tf.RaggedTensor.from_row_splits(inputs[0], inputs[1])
+        else:
+            flat_vals = inputs.flat_values
+            row_limits = inputs.row_limits() - 1
+            ragged_tensor = inputs
+            last_hidden_states = tf.gather(flat_vals, row_limits)
+
+        max_pooled = tf.math.reduce_max(ragged_tensor, axis=1)
+        mean_pooled = tf.math.reduce_mean(ragged_tensor, axis=1)
+        ret = tf.concat([last_hidden_states, max_pooled, mean_pooled], axis=1)
+        return ret
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], input_shape[2]*3)
+
+    def get_config(self):
+        cfg = super().get_config()
+        return cfg
+
+    @classmethod
+    def from_config(cls, config):
+      return cls(**config)

@@ -161,6 +161,50 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
         raise ValueError(f"Unknown model type {args['model_type']}")
     return last_hidden_state_model
 
+def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes, spm_model_args=None, fixed_seq_len=None):
+    """
+    Document classification head as per the ULMFiT paper:
+       - AvgPool + MaxPool + Last hidden state
+       - BatchNorm
+       - 2 FC layers
+    """
+    ######## VERSION 1: ULMFiT last state built from Python code - pass the path to a weights directory
+    if model_type == 'from_cp':
+        ulmfit_rnn_encoder = ulmfit_rnn_encoder_native(pretrained_weights=pretrained_encoder_weights,
+                                               spm_model_args=spm_model_args,
+                                               fixed_seq_len=fixed_seq_len,
+                                               also_return_spm_encoder=False)
+        if fixed_seq_len is None:
+            rpooler = RaggedConcatPooler(name="RaggedConcatPooler")(ulmfit_rnn_encoder.output)
+        else:
+            rpooler = ConcatPooler(name="ConcatPooler")(ulmfit_rnn_encoder.output)
+
+    ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
+    elif model_type == 'from_hub':
+        il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
+                                                     spm_model_args=None,
+                                                     fixed_seq_len=fixed_seq_len,
+                                                     also_return_spm_encoder=False)
+        if fixed_seq_len is None:
+            rpooler = RaggedConcatPooler(inputs_are_flattened=True, name="RaggedConcatPooler")(kl)
+        else:
+            rpooler = ConcatPooler(name="ConcatPooler")(kl)
+    else:
+        raise ValueError(f"Unknown model type {args['model_type']}")
+    bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1)(rpooler)
+    drop1 = tf.keras.layers.Dropout(0.4)(bnorm1)
+    fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
+    bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1)(fc1)
+    drop2 = tf.keras.layers.Dropout(0.1)(bnorm2)
+    fc_final = tf.keras.layers.Dense(num_classes, activation='softmax')(drop2)
+    if model_type == 'from_cp':
+        document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.input, outputs=fc_final)
+    elif model_type == 'from_hub':
+        document_classifier_model = tf.keras.models.Model(inputs=il, outputs=fc_final)
+    else:
+        raise ValueError(f"Unknown model type {args['model_type']}")
+    return document_classifier_model
+
 ############# THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
 
 def ulmfit_tagger_functional(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None):
