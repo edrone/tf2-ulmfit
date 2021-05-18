@@ -11,40 +11,25 @@ from lm_tokenizers import LMTokenizerFactory
 
 DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m', 2: '__label__meta_minus_m', 3:'__label__meta_amb'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
 
-def tokenize_and_align_labels(spmproc, ddpl_iob, max_seq_len):
-    """
-    Performs Sentencepiece tokenization on an already whitespace-tokenized text
-    and aligns labels to subwords
-    """
-
-    print(f"Tokenizing and aligning {len(ddpl_iob)} examples...")
-    if max_seq_len is not None:
-        print(f"Note: inputs will be truncated to the first {max_seq_len - 2} tokens")
-    tokenized = []
-    numericalized = []
-    labels = []
-    for sent in ddpl_iob:
-        sentence_tokens = []
-        sentence_ids = []
-        sentence_labels = []
-        for whitespace_token in sent:
-            subwords = spmproc.encode_as_pieces(whitespace_token[0])
-            sentence_tokens.extend(subwords)
-            sentence_ids.extend(spmproc.encode_as_ids(whitespace_token[0]))
-            sentence_labels.extend([whitespace_token[1]]*len(subwords))
-        if max_seq_len is not None:
-            sentence_tokens = sentence_tokens[:max_seq_len-2] # minus 2 tokens for BOS and EOS since the encoder was trained on sentences with these markers
-            sentence_ids = sentence_ids[:max_seq_len-2]
-            sentence_labels = sentence_labels[:max_seq_len-2]
-        sentence_tokens = [spmproc.id_to_piece(spmproc.bos_id())] + \
-                          sentence_tokens + \
-                          [spmproc.id_to_piece(spmproc.eos_id())]
-        sentence_ids = [spmproc.bos_id()] + sentence_ids + [spmproc.eos_id()]
-        sentence_labels = [0] + sentence_labels + [0]
-        tokenized.append(sentence_tokens)
-        numericalized.append(sentence_ids)
-        labels.append(sentence_labels)
-    return tokenized, numericalized, labels
+def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
+    df = pd.read_csv(args['train_tsv'], sep='\t')
+    df['target'].replace({v:k for k,v in label_map.items()}, inplace=True)
+    df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False)
+    spm_args = {'spm_path': args['spm_model_file'],
+                'add_bos': True,
+                'add_eos': False,
+                'lumped_sents_separator': '[SEP]'
+    }
+    spm_layer = SPMNumericalizer(**spm_args)
+    spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
+    x_data = spm_layer(df['sentence'].tolist())
+    if args.get('max_seq_len') is not None:
+        x_data = x_data[:, :args['max_seq_len']]
+    #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
+    #                                           tokenizer_file=args['spm_model_file'], \
+    #                                           add_bos=False, add_eos=False) # bos and eos will need to be added manually
+    labels = df['target'].to_numpy()
+    return x_data, labels
 
 def interactive_demo(args, label_map):
     #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
@@ -106,25 +91,31 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
         if sure in ['n', 'N']:
             sys.exit(1)
 
+def evaluate(args, label_map):
+    x_data, labels = read_numericalize(input_file=args['test_tsv'],
+                                       spm_model_file=args['spm_model_file'],
+                                       label_map=label_map,
+                                       max_seq_len = args.get('max_seq_len'))
+    if args.get('fixed_seq_len') is not None:
+        raise NotImplementedError("Not implemented yet")
+    else:
+        ulmfit_classifier, _ = ulmfit_document_classifier(model_type=args['model_type'],
+                                                          pretrained_encoder_weights=args['model_weights_cp'],
+                                                          spm_model_args=spm_args,
+                                                          fixed_seq_len=args.get('fixed_seq_len'),
+                                                          num_classes=args['num_classes'])
+    ulmfit_classifier.summary()
+    print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
+    return ulmfit_classifier, x_data, labels
+    
+    
+    
 def main(args, label_map):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
-    df = pd.read_csv(args['train_tsv'], sep='\t')
-    df['target'].replace({v:k for k,v in label_map.items()}, inplace=True)
-    df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False)
-    spm_args = {'spm_path': args['spm_model_file'],
-                'add_bos': True,
-                'add_eos': False,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spm_layer = SPMNumericalizer(**spm_args)
-    spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
-    x_data = spm_layer(df['sentence'].tolist())
-    if args.get('max_seq_len') is not None:
-        x_data = x_data[:, :args['max_seq_len']]
-    #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
-    #                                           tokenizer_file=args['spm_model_file'], \
-    #                                           add_bos=False, add_eos=False) # bos and eos will need to be added manually
-    labels = df['target'].to_numpy()
+    x_data, labels = read_numericalize(input_file=args['train_tsv'],
+                                       spm_model_file=args['spm_model_file'],
+                                       label_map=label_map,
+                                       max_seq_len = args.get('max_seq_len'))
     if args.get('fixed_seq_len') is not None:
         raise NotImplementedError("Not implemented yet")
     else:
@@ -191,5 +182,7 @@ if __name__ == "__main__":
         label_map = DEFAULT_LABEL_MAP
     if argz.get('interactive') is True:        
         interactive_demo(argz, label_map)
+    elif argz.get('test_tsv'):
+        evaluate(argz, label_map)
     else:
         main(argz, label_map)
