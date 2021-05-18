@@ -107,15 +107,17 @@ def main(args, label_map):
     optimizer = tf.keras.optimizers.Adam(learning_rate=args['lr'])
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     ulmfit_classifier.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
-    awd_callback = AWDCallback(model_object=ulmfit_classifier if hub_object is None else None, hub_object=hub_object)
-    save_cb = tf.keras.callbacks.ModelCheckpoint(args['out_cp_name'], save_best_only=True, save_weights_only=True)
-    tensorboard_cb = tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch')
+    callbacks = [
+        tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'),
+        tf.keras.callbacks.ModelCheckpoint(args['out_cp_name'], save_best_only=True, save_weights_only=True)
+    ]
+    if not args.get('awd_off'): callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None, hub_object=hub_object))
     validation_data = (y_data, y_labels) if y_data is not None else None
     #exit(0)
     ulmfit_classifier.fit(x=x_data, y=labels, batch_size=args['batch_size'],
                           validation_data=validation_data,
                           epochs=args['num_epochs'],
-                          callbacks=[awd_callback, save_cb, tensorboard_cb])
+                          callbacks=callbacks)
     ulmfit_classifier.save_weights(args['out_cp_name']+'_final')
     return ulmfit_classifier, x_data, labels, loss_fn, optimizer
 
