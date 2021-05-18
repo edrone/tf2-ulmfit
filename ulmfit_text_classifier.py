@@ -12,10 +12,10 @@ from lm_tokenizers import LMTokenizerFactory
 DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
                      2: '__label__meta_minus_m', 3:'__label__meta_amb'}
 
-def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
+def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len, x_col, y_col):
     df = pd.read_csv(input_file, sep='\t')
-    df['target'].astype(str).replace({v:k for k,v in label_map.items()}, inplace=True)
-    df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False) # fixme: do proper sentence tokenization
+    df[y_col].astype(str).replace({v:k for k,v in label_map.items()}, inplace=True)
+    df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False) # fixme: do proper sentence tokenization
     spm_args = {'spm_path': spm_model_file,
                 'add_bos': True,
                 'add_eos': False,
@@ -23,10 +23,10 @@ def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     }
     spm_layer = SPMNumericalizer(**spm_args)
     spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
-    x_data = spm_layer(df['sentence'].tolist())
+    x_data = spm_layer(df[x_col].tolist())
     if max_seq_len is not None:
         x_data = x_data[:, :max_seq_len]
-    labels = df['target'].to_numpy()
+    labels = df[y_col].to_numpy()
     return x_data, labels, spm_args
 
 def interactive_demo(args, label_map):
@@ -59,9 +59,11 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
 
 def evaluate(args, label_map):
     x_data, labels, spm_args = read_numericalize(input_file=args['test_tsv'],
-                                       spm_model_file=args['spm_model_file'],
-                                       label_map=label_map,
-                                       max_seq_len = args.get('max_seq_len'))
+                                                 spm_model_file=args['spm_model_file'],
+                                                 label_map=label_map,
+                                                 max_seq_len = args.get('max_seq_len'),
+                                                 x_col=args['data_column_name'],
+                                                 y_col=args['gold_column_name'])
     if args.get('fixed_seq_len') is not None:
         raise NotImplementedError("Not implemented yet")
     else:
@@ -79,12 +81,16 @@ def main(args, label_map):
     x_data, labels, spm_args = read_numericalize(input_file=args['train_tsv'],
                                                  spm_model_file=args['spm_model_file'],
                                                  label_map=label_map,
-                                                 max_seq_len = args.get('max_seq_len'))
+                                                 max_seq_len = args.get('max_seq_len'),
+                                                 x_col=args['data_column_name'],
+                                                 y_col=args['gold_column_name'])
     if args.get('test_tsv') is not None:
         y_data, y_labels, spm_args = read_numericalize(input_file=args['test_tsv'],
                                                        spm_model_file=args['spm_model_file'],
                                                        label_map=label_map,
-                                                       max_seq_len = args.get('max_seq_len'))
+                                                       max_seq_len = args.get('max_seq_len'),
+                                                       x_col=args['data_column_name'],
+                                                       y_col=args['gold_column_name'])
     else:
         y_data = y_labels = None
     if args.get('fixed_seq_len') is not None:
@@ -117,7 +123,8 @@ if __name__ == "__main__":
     argz = argparse.ArgumentParser()
     argz.add_argument("--train-tsv", required=False, help="Training input file (tsv format)")
     argz.add_argument("--test-tsv", required=False, help="Training test file (tsv format)")
-    argz.add_argument('--gold-column-name', required=True, help="Name of the gold column in the tsv file")
+    argz.add_argument('--data-column-name', default='sentence', help="Name of the column containing X data")
+    argz.add_argument('--gold-column-name', default='target', help="Name of the gold column in the tsv file")
     argz.add_argument("--model-weights-cp", required=True, help="For training: path to *weights* (checkpoint) of " \
                                                                 "the generic model." \
                                                                 "For demo: path to *weights* produced by this script")
