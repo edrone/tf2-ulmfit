@@ -29,7 +29,7 @@ def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     #                                           tokenizer_file=args['spm_model_file'], \
     #                                           add_bos=False, add_eos=False) # bos and eos will need to be added manually
     labels = df['target'].to_numpy()
-    return x_data, labels
+    return x_data, labels, spm_args
 
 def interactive_demo(args, label_map):
     #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
@@ -92,7 +92,7 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
             sys.exit(1)
 
 def evaluate(args, label_map):
-    x_data, labels = read_numericalize(input_file=args['test_tsv'],
+    x_data, labels,spm_args = read_numericalize(input_file=args['test_tsv'],
                                        spm_model_file=args['spm_model_file'],
                                        label_map=label_map,
                                        max_seq_len = args.get('max_seq_len'))
