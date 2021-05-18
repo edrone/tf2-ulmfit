@@ -14,7 +14,8 @@ DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
 
 def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len, x_col, y_col):
     df = pd.read_csv(input_file, sep='\t')
-    df[y_col].astype(str).replace({v:k for k,v in label_map.items()}, inplace=True)
+    df[y_col] = df[y_col].astype(str)
+    df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
     df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False) # fixme: do proper sentence tokenization
     spm_args = {'spm_path': spm_model_file,
                 'add_bos': True,
@@ -110,6 +111,7 @@ def main(args, label_map):
     save_cb = tf.keras.callbacks.ModelCheckpoint(args['out_cp_name'], save_best_only=True, save_weights_only=True)
     tensorboard_cb = tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch')
     validation_data = (y_data, y_labels) if y_data is not None else None
+    #exit(0)
     ulmfit_classifier.fit(x=x_data, y=labels, batch_size=args['batch_size'],
                           validation_data=validation_data,
                           epochs=args['num_epochs'],
