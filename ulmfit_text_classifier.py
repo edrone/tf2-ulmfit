@@ -14,8 +14,8 @@ DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
 
 def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     df = pd.read_csv(input_file, sep='\t')
-    df['target'].replace({v:k for k,v in label_map.items()}, inplace=True)
-    df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False)
+    df['target'].astype(str).replace({v:k for k,v in label_map.items()}, inplace=True)
+    df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False) # fixme: do proper sentence tokenization
     spm_args = {'spm_path': spm_model_file,
                 'add_bos': True,
                 'add_eos': False,
