@@ -6,10 +6,11 @@ import tensorflow_hub as hub
 import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import *
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy
-from ulmfit_commons import apply_awd_eagerly
+from ulmfit_commons import apply_awd_eagerly, AWDCallback
 from lm_tokenizers import LMTokenizerFactory
 
-DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m', 2: '__label__meta_minus_m', 3:'__label__meta_amb'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
+DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
+                     2: '__label__meta_minus_m', 3:'__label__meta_amb'}
 
 def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     df = pd.read_csv(input_file, sep='\t')
@@ -25,46 +26,11 @@ def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     x_data = spm_layer(df['sentence'].tolist())
     if max_seq_len is not None:
         x_data = x_data[:, :max_seq_len]
-    #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
-    #                                           tokenizer_file=args['spm_model_file'], \
-    #                                           add_bos=False, add_eos=False) # bos and eos will need to be added manually
     labels = df['target'].to_numpy()
     return x_data, labels, spm_args
 
 def interactive_demo(args, label_map):
-    #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
-    #                                           tokenizer_file=args['spm_model_file'], \
-    #                                           add_bos=True, add_eos=True) # bos and eos will need to be added manually
-    spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
-                                               tokenizer_file=args['spm_model_file'], \
-                                               add_bos=True, add_eos=True) # bos and eos will need to be added manually
-    spm_args = {'spm_model_file': args['spm_model_file'],
-                'add_bos': False,
-                'add_eos': False,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spmproc = spm_encoder.spmproc
-    ulmfit_tagger, hub_object = ulmfit_sequence_tagger(model_type=args['model_type'],
-                                                       pretrained_encoder_weights=None,
-                                                       spm_model_args=spm_args,
-                                                       fixed_seq_len=args.get('fixed_seq_len'),
-                                                       num_classes=len(label_map))
-    ulmfit_tagger.summary()
-    ulmfit_tagger.load_weights(args['model_weights_cp'])
-    print("Done")
-    ulmfit_tagger.summary()
-    readline.parse_and_bind('set editing-mode vi')
-    while True:
-        sent = input("Write a sentence to tag: ")
-        # Our SPMNumericalizer already outputs a RaggedTensor, but in the line below we access
-        # the underlying object directly on purpose, so we have to convert it from regular to ragged tensor ourselves.
-        subword_ids = spmproc.tokenize(sent)
-        subword_ids = tf.RaggedTensor.from_tensor(tf.expand_dims(subword_ids, axis=0))
-        subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
-        subwords = [s.decode() for s in subwords]
-        ret = tf.argmax(ulmfit_tagger.predict(subword_ids)[0], axis=1).numpy().tolist()
-        for subword, category in zip(subwords, ret):
-            print("{:<15s}{:>4s}".format(subword, label_map[category]))
+    raise NotImplementedError
 
 def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
     if awd_off is not True:
@@ -92,7 +58,7 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
             sys.exit(1)
 
 def evaluate(args, label_map):
-    x_data, labels,spm_args = read_numericalize(input_file=args['test_tsv'],
+    x_data, labels, spm_args = read_numericalize(input_file=args['test_tsv'],
                                        spm_model_file=args['spm_model_file'],
                                        label_map=label_map,
                                        max_seq_len = args.get('max_seq_len'))
@@ -108,14 +74,19 @@ def evaluate(args, label_map):
     print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
     return ulmfit_classifier, x_data, labels
     
-    
-    
 def main(args, label_map):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
-    x_data, labels = read_numericalize(input_file=args['train_tsv'],
-                                       spm_model_file=args['spm_model_file'],
-                                       label_map=label_map,
-                                       max_seq_len = args.get('max_seq_len'))
+    x_data, labels, spm_args = read_numericalize(input_file=args['train_tsv'],
+                                                 spm_model_file=args['spm_model_file'],
+                                                 label_map=label_map,
+                                                 max_seq_len = args.get('max_seq_len'))
+    if args.get('test_tsv') is not None:
+        y_data, y_labels, spm_args = read_numericalize(input_file=args['test_tsv'],
+                                                       spm_model_file=args['spm_model_file'],
+                                                       label_map=label_map,
+                                                       max_seq_len = args.get('max_seq_len'))
+    else:
+        y_data = y_labels = None
     if args.get('fixed_seq_len') is not None:
         raise NotImplementedError("Not implemented yet")
     else:
@@ -126,25 +97,18 @@ def main(args, label_map):
                                                                    num_classes=args['num_classes'])
     ulmfit_classifier.summary()
     print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
-    optimizer = tf.keras.optimizers.Adam()
+    optimizer = tf.keras.optimizers.Adam(learning_rate=args['lr'])
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-
-    ##### For RaggedTensors and variable-length sequences we have to use the GradientTape ########
     ulmfit_classifier.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
-    batch_size = args['batch_size']
-    steps_per_epoch = x_data.shape[0] // batch_size
-    for epoch in range(args['num_epochs']):
-        for step in range(steps_per_epoch - 1):
-            if step % 25 == 0:
-                print("Saving weights...")
-                ulmfit_classifier.save_weights(args['out_cp_name'])
-            train_step(model=ulmfit_classifier,
-                       hub_object=hub_object,
-                       loss_fn=loss_fn, optimizer=optimizer,
-                       x=x_data[(step*batch_size):(step+1)*batch_size],
-                       y=labels[(step*batch_size):(step+1)*batch_size],
-                       step_info=(step, steps_per_epoch))
-        # TODO: add shuffling after every epoch
+    awd_callback = AWDCallback(model_object=ulmfit_classifier if hub_object is None else None, hub_object=hub_object)
+    save_cb = tf.keras.callbacks.ModelCheckpoint(args['out_cp_name'], save_best_only=True, save_weights_only=True)
+    tensorboard_cb = tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch')
+    validation_data = (y_data, y_labels) if y_data is not None else None
+    ulmfit_classifier.fit(x=x_data, y=labels, batch_size=args['batch_size'],
+                          validation_data=validation_data,
+                          epochs=args['num_epochs'],
+                          callbacks=[awd_callback, save_cb, tensorboard_cb])
+    ulmfit_classifier.save_weights(args['out_cp_name']+'_final')
     return ulmfit_classifier, x_data, labels, loss_fn, optimizer
 
 if __name__ == "__main__":
@@ -153,6 +117,7 @@ if __name__ == "__main__":
     argz = argparse.ArgumentParser()
     argz.add_argument("--train-tsv", required=False, help="Training input file (tsv format)")
     argz.add_argument("--test-tsv", required=False, help="Training test file (tsv format)")
+    argz.add_argument('--gold-column-name', required=True, help="Name of the gold column in the tsv file")
     argz.add_argument("--model-weights-cp", required=True, help="For training: path to *weights* (checkpoint) of " \
                                                                 "the generic model." \
                                                                 "For demo: path to *weights* produced by this script")
@@ -165,6 +130,7 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length. Only makes sense with RaggedTensors.")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
+    argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=False, help="Path to a JSON file containing labels. If not given, " \
                                                           "4 classes will be used.")
@@ -182,7 +148,10 @@ if __name__ == "__main__":
         label_map = DEFAULT_LABEL_MAP
     if argz.get('interactive') is True:        
         interactive_demo(argz, label_map)
+    if argz.get('train_tsv'):
+        main(argz, label_map)
     elif argz.get('test_tsv'):
         evaluate(argz, label_map)
     else:
-        main(argz, label_map)
+        print("Unknown action")
+        exit(-1)

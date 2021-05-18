@@ -3,6 +3,7 @@ import numpy as np
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
+import tensorflow as tf
 
 """ Various ULMFit / FastAI related utils """
 
@@ -90,8 +91,7 @@ def apply_awd_eagerly(encoder_num, awd_rate):
         Note: there is also a variant of this function that is serialized into a SavedModel.
         See ExportableULMFiT object for details.
     """
-    import tensorflow as tf
-    tf.print("Applying AWD eagerly")
+    # tf.print("Applying AWD eagerly")
     rnn1_w = encoder_num.get_layer("AWD_RNN1").variables
     rnn2_w = encoder_num.get_layer("AWD_RNN2").variables
     rnn3_w = encoder_num.get_layer("AWD_RNN3").variables
@@ -104,3 +104,18 @@ def apply_awd_eagerly(encoder_num, awd_rate):
 
     w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
     rnn3_w[1].assign(w3_mask * rnn3_w[2])
+
+class AWDCallback(tf.keras.callbacks.Callback):
+    def __init__(self, *, model_object=None, hub_object=None, awd_rate=0.5):
+        super().__init__()
+        if not any([model_object, hub_object]) or all([model_object, hub_object]):
+            raise ValueError("Pass either `model_object` (for eager mode) or `hub_object` (for graph mode), not none, not both.")
+        self.model_object = model_object
+        self.hub_object = hub_object
+        self.awd_rate = awd_rate
+
+    def on_train_batch_begin(self, batch, logs=None):
+        if self.hub_object is not None:
+            self.hub_object.apply_awd(self.awd_rate)
+        else:
+            apply_awd_eagerly(self.model_object, self.awd_rate)
