@@ -12,10 +12,10 @@ from lm_tokenizers import LMTokenizerFactory
 DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m', 2: '__label__meta_minus_m', 3:'__label__meta_amb'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
 
 def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
-    df = pd.read_csv(args['train_tsv'], sep='\t')
+    df = pd.read_csv(input_file, sep='\t')
     df['target'].replace({v:k for k,v in label_map.items()}, inplace=True)
     df['sentence'] = df['sentence'].str.replace(' . ', '[SEP]', regex=False)
-    spm_args = {'spm_path': args['spm_model_file'],
+    spm_args = {'spm_path': spm_model_file,
                 'add_bos': True,
                 'add_eos': False,
                 'lumped_sents_separator': '[SEP]'
@@ -23,8 +23,8 @@ def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len):
     spm_layer = SPMNumericalizer(**spm_args)
     spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
     x_data = spm_layer(df['sentence'].tolist())
-    if args.get('max_seq_len') is not None:
-        x_data = x_data[:, :args['max_seq_len']]
+    if max_seq_len is not None:
+        x_data = x_data[:, :max_seq_len]
     #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
     #                                           tokenizer_file=args['spm_model_file'], \
     #                                           add_bos=False, add_eos=False) # bos and eos will need to be added manually
