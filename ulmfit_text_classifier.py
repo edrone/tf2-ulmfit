@@ -1,4 +1,4 @@
-import sys, argparse, readline
+import os, sys, argparse, readline
 import json
 import pandas as pd
 import tensorflow as tf
@@ -107,9 +107,15 @@ def main(args, label_map):
     optimizer = tf.keras.optimizers.Adam(learning_rate=args['lr'])
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     ulmfit_classifier.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
+    cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
+    final_dir = os.path.join(args['out_cp_path'], 'final')
+    for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
     callbacks = [
         tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'),
-        tf.keras.callbacks.ModelCheckpoint(args['out_cp_name'], save_best_only=True, save_weights_only=True)
+        tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'classifier_model'),
+                                           monitor='val_sparse_categorical_accuracy',
+                                           save_best_only=True,
+                                           save_weights_only=True)
     ]
     if not args.get('awd_off'): callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None, hub_object=hub_object))
     validation_data = (y_data, y_labels) if y_data is not None else None
@@ -118,7 +124,7 @@ def main(args, label_map):
                           validation_data=validation_data,
                           epochs=args['num_epochs'],
                           callbacks=callbacks)
-    ulmfit_classifier.save_weights(args['out_cp_name']+'_final')
+    ulmfit_classifier.save_weights(os.path.join(final_dir, 'classifier_final'))
     return ulmfit_classifier, x_data, labels, loss_fn, optimizer
 
 if __name__ == "__main__":
@@ -146,7 +152,7 @@ if __name__ == "__main__":
     argz.add_argument("--label-map", required=False, help="Path to a JSON file containing labels. If not given, " \
                                                           "4 classes will be used.")
     argz.add_argument("--num-classes", type=int, default=4, help="Number of label categories")
-    argz.add_argument("--out-cp-name", default="polemo_results", help="(Training only): Checkpoint name to save every 10 steps")
+    argz.add_argument("--out-cp-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
