@@ -1,5 +1,6 @@
 import os, sys, argparse, readline
 import json
+import nltk
 import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
@@ -12,21 +13,29 @@ from lm_tokenizers import LMTokenizerFactory
 DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
                      2: '__label__meta_minus_m', 3:'__label__meta_amb'}
 
-def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len, x_col, y_col):
+def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len=None, fixed_seq_len=None,
+                      x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
     df = pd.read_csv(input_file, sep='\t')
     df[y_col] = df[y_col].astype(str)
     df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
-    df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False) # fixme: do proper sentence tokenization
+    if sentence_tokenize is True:
+        df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
+        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
+                             .map(lambda t: "[SEP]".join(t))
     spm_args = {'spm_path': spm_model_file,
                 'add_bos': True,
-                'add_eos': False,
+                'add_eos': True,
                 'lumped_sents_separator': '[SEP]'
     }
     spm_layer = SPMNumericalizer(**spm_args)
     spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
     x_data = spm_layer(df[x_col].tolist())
+    if cut_off_final_token is True:
+        x_data = x_data[:, :-1] # in case we want to get rid of sequences always ending in an EOS token
     if max_seq_len is not None:
         x_data = x_data[:, :max_seq_len]
+    if fixed_seq_len is not None:
+        x_data = x_data.to_tensor(1)
     labels = df[y_col].to_numpy()
     return x_data, labels, spm_args
 
@@ -84,14 +93,18 @@ def main(args, label_map):
                                                  label_map=label_map,
                                                  max_seq_len = args.get('max_seq_len'),
                                                  x_col=args['data_column_name'],
-                                                 y_col=args['gold_column_name'])
+                                                 y_col=args['gold_column_name'],
+                                                 sentence_tokenize=True,
+                                                 cut_off_final_token=True)
     if args.get('test_tsv') is not None:
         y_data, y_labels, spm_args = read_numericalize(input_file=args['test_tsv'],
                                                        spm_model_file=args['spm_model_file'],
                                                        label_map=label_map,
                                                        max_seq_len = args.get('max_seq_len'),
                                                        x_col=args['data_column_name'],
-                                                       y_col=args['gold_column_name'])
+                                                       y_col=args['gold_column_name'],
+                                                       sentence_tokenize=True,
+                                                       cut_off_final_token=True)
     else:
         y_data = y_labels = None
     if args.get('fixed_seq_len') is not None:
@@ -104,9 +117,11 @@ def main(args, label_map):
                                                                    num_classes=args['num_classes'])
     ulmfit_classifier.summary()
     print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
-    optimizer = tf.keras.optimizers.Adam(learning_rate=args['lr'])
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=args['lr'], beta_1=0.7, beta_2=0.99)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-    ulmfit_classifier.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
+    ulmfit_classifier.compile(optimizer=optimizer_fn,
+                              loss=loss_fn,
+                              metrics=['sparse_categorical_accuracy'])
     cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
     final_dir = os.path.join(args['out_cp_path'], 'final')
     for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
@@ -117,7 +132,9 @@ def main(args, label_map):
                                            save_best_only=True,
                                            save_weights_only=True)
     ]
-    if not args.get('awd_off'): callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None, hub_object=hub_object))
+    if not args.get('awd_off'):
+        callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None,
+                                     hub_object=hub_object))
     validation_data = (y_data, y_labels) if y_data is not None else None
     #exit(0)
     ulmfit_classifier.fit(x=x_data, y=labels, batch_size=args['batch_size'],
