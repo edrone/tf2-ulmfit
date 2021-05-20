@@ -2,7 +2,7 @@ import os, re, argparse
 import numpy as np
 import subprocess
 import pickle
-
+import tensorflow as tf
 from collections import OrderedDict
 from fastai.basics import *
 from fastai.callback.all import *
@@ -68,39 +68,40 @@ def restore_encoder(*, pth_file, text_classifier):
         else:
             renamed_keys[re.sub('^0.', '', k)] = v
     encoder.load_state_dict(renamed_keys)
+    print("Encoder was restored")
 
 def main(args):
     label_map = read_labels(args['label_map'])
-    x_data, y_data, _ = read_numericalize(input_file=args['train_tsv'],
+    x_train, y_train, _ = read_numericalize(input_file=args['train_tsv'],
                                                  spm_model_file=args['spm_model_file'],
                                                  label_map=label_map,
                                                  fixed_seq_len = args.get('fixed_seq_len'),
                                                  x_col=args['data_column_name'],
                                                  y_col=args['gold_column_name'],
-                                                 sentence_tokenize=True)
-    x_data = x_data.numpy().tolist()
-    y_data = y_data.tolist()
+                                                 sentence_tokenize=True,
+                                                 cut_off_final_token=True)
     if args.get('test_tsv'):
-        train_len = len(x_data)
+        train_len = x_train.shape[0]
         x_test, y_test, _ = read_numericalize(input_file=args['test_tsv'],
                                               spm_model_file=args['spm_model_file'],
                                               label_map=label_map,
                                               fixed_seq_len = args.get('fixed_seq_len'),
                                               x_col=args['data_column_name'],
                                               y_col=args['gold_column_name'],
-                                              sentence_tokenize=True)
-        x_data.extend(x_test.numpy().tolist())
-        y_data.extend(y_test.tolist())
-        splits = [range(0, train_len), range(train_len, train_len+len(x_test))]
+                                              sentence_tokenize=True,
+                                              cut_off_final_token=True)
+        test_len = x_test.shape[0]
+        splits = [range(0, train_len), range(train_len, train_len+test_len)]
     else:
-        x_test = y_test = None
+        x_test = tf.constant([])
+        y_test = np.array([])
         splits = None
+    x_data = [TensorText(k) for k in x_train.numpy().tolist()] + [TensorText(k) for k in x_test.numpy().tolist()]
+    y_data = [TensorCategory(c) for c in y_train.tolist()] + [TensorCategory(c) for c in y_test.tolist()]
 
-    x_data = TensorText(np.array(x_data, dtype=int))
-    y_data = TensorCategory(np.array(y_data, dtype=int))
-    tds = TensorDataset(x_data, y_data)
-    
-    data_loaders = DataLoader(Datasets(tds.tensors), bs=args['batch_size'], shuffle=True)
+    df = pd.DataFrame.from_dict({'numericalized': x_data, 'labels': y_data})
+    ds = Datasets(df, [[attrgetter('numericalized')], [attrgetter('labels')]], splits=splits)
+    data_loaders = ds.dataloaders(bs=args['batch_size'], shuffle=True)
 
     ############# The actual FastAI training happens below ############
 
