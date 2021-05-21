@@ -101,7 +101,7 @@ def main(args):
 
     df = pd.DataFrame.from_dict({'numericalized': x_data, 'labels': y_data})
     ds = Datasets(df, [[attrgetter('numericalized')], [attrgetter('labels')]], splits=splits)
-    data_loaders = ds.dataloaders(bs=args['batch_size'], shuffle=True)
+    data_loaders = ds.dataloaders(bs=args['batch_size'], seq_len=args.get('fixed_seq_len'), shuffle=True)
 
     ############# The actual FastAI training happens below ############
 
