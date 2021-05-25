@@ -95,8 +95,6 @@ def recase_single(text):
     ret = " ".join(ret)
     return ret
 
-
-
 def attempt_split(text, hunspell_obj, min_len=20):
     """ Attempts to split words that were accidentally merged, e.g.
         'narzędziaklucz' => 'narzędzia klucz'
@@ -113,6 +111,30 @@ def attempt_split(text, hunspell_obj, min_len=20):
             else:
                 ret.append(splitted_candidate[0])
     return " ".join(ret)
+
+def strip_hashtags(text):
+    return re.sub('#.*?\b', ' ', text)
+
+def attempt_split_uppercase(text, min_upper=4, recase=True, last_upper_goes_to='right'):
+    """ Splits phrases that were accidentally merged during crawling based on the letter case:
+
+         Ex) UWAGISmak i konsystencja => UWAGI Smak i konsystencja   (recase=False, last_upper_goes_to='right')
+                                      => UWAGIS mak i konsystencja   (recase=False, last_upper_goes_to='left')
+                                      => Uwagi Smak i konsystencja   (recase=True, last_upper_goes_to='right')
+                                      => Uwagis mak i konsystencja   (recase=True, last_upper_goes_to='left')
+    """
+    regexp = re.compile("([A-ZĄĘŚĆŃŹŻÓŁ]{" + str(min_upper) + ",})([a-ząęśćńźżół]{2,})")
+    TO_LEFT = lambda p: p.group(1) + " " + p.group(2)
+    TO_RIGHT = lambda p: p.group(1)[:-1] + " " + p.group(1)[-1]+p.group(2)
+    TO_LEFT_RECASE = lambda p: p.group(1)[0]+p.group(1).lower()[1:] + " " + p.group(2)
+    TO_RIGHT_RECASE = lambda p: p.group(1)[0]+p.group(1).lower()[1:-1] + " " + p.group(1)[-1]+p.group(2)
+    if last_upper_goes_to == 'right':
+        tfm = TO_RIGHT_RECASE if recase else TO_RIGHT
+    elif last_upper_goes_to == 'left':
+        tfm = TO_LEFT_RECASE if recase else TO_LEFT
+    else:
+        raise ValueError(f"Unknown operation on the boundary uppercase letter: {last_upper_goes_to}")
+    return re.sub(regexp, tfm, text)
 
 def main(args):
     logging.info(f"Reading input file {args['input_text']}")
