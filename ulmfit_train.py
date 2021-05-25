@@ -49,10 +49,11 @@ def _run_finetuning(learner_obj, args):
     learner_obj.load(args['pretrained_model'])
     learner_obj.model[0].rnns.requires_grad_(False)
     lr = lr_or_default(args['pretrain_lr'], learner_obj)
-    learner_obj.fit_one_cycle(1, lr, moms=(0.8, 0.7, 0.8), div=10)
+    learner_obj.fit_one_cycle(1, lr, moms=(0.8, 0.7, 0.8), div=50)
     learner_obj.unfreeze()
     lr = lr_or_default(args['finetune_lr'], learner_obj)
-    learner_obj.fit_one_cycle(args['num_epochs']-1, slice(lr/100, lr), pct_start=0.3, div=10)
+    learner_obj.fit_one_cycle(args['num_epochs']-1, lr_max=lr, pct_start=0.25,
+                              div=25.0, div_final=100000.0, wd=0.1)
     return learner_obj
 
 def main(args):
