@@ -77,7 +77,7 @@ def main(args):
                                                  x_col=args['data_column_name'],
                                                  y_col=args['gold_column_name'],
                                                  sentence_tokenize=True,
-                                                 cut_off_final_token=True)
+                                                 cut_off_final_token=False)
     if args.get('test_tsv'):
         train_len = x_train.shape[0]
         x_test, y_test, _ = read_numericalize(input_file=args['test_tsv'],
@@ -87,7 +87,7 @@ def main(args):
                                               x_col=args['data_column_name'],
                                               y_col=args['gold_column_name'],
                                               sentence_tokenize=True,
-                                              cut_off_final_token=True)
+                                              cut_off_final_token=False)
         test_len = x_test.shape[0]
         splits = [range(0, train_len), range(train_len, train_len+test_len)]
     else:
@@ -99,7 +99,7 @@ def main(args):
 
     df = pd.DataFrame.from_dict({'numericalized': x_data, 'labels': y_data})
     ds = Datasets(df, [[attrgetter('numericalized')], [attrgetter('labels')]], splits=splits)
-    data_loaders = ds.dataloaders(bs=args['batch_size'], seq_len=args.get('fixed_seq_len'), shuffle=True)
+    dls = ds.dataloaders(bs=args['batch_size'], shuffle=True)
 
     ############# The actual FastAI training happens below ############
 
@@ -119,25 +119,13 @@ def main(args):
                           opt_func=opt_func, cbs=callbacks, metrics=[accuracy])
     print(learner_obj.model)
     learner_obj.model_dir = '.'
-    learner_obj.fit_one_cycle(12, 0.01)
-    exit(0)
-
-    learner_obj = _run_finetuning(learner_obj, args)
-
+    if args.get('classifier_lr'):
+        learner_obj.fit_one_cycle(args['num_epochs'], args['classifier_lr'])
+    else:
+        learner_obj.fine_tune(args['num_epochs'])
     print("Saving the ULMFit model in FastAI format ...")
     os.makedirs(args['save_path'], exist_ok=True)
     learner_obj.save(os.path.join(args['save_path'], args['exp_name'])) # .pth will be added automatically
-    # print("Saving the ULMFit model's weights into a pickle ...")
-    # pickle.dump(learner_obj.model.state_dict(), open(os.path.join(args['save_path'], f"{args['exp_name']}_state_dict.p"), 'wb'))
-    if args.get('export_to_tf2'):
-        print("Saving the ULMFit model to a Keras checkpoint...")
-        save_as_keras(state_dict=learner_obj.model.state_dict(),
-                      exp_name=args['exp_name'],
-                      save_path=args['save_path'],
-                      awd_weights='on',
-                      fixed_seq_len=None,
-                      spm_model_file=args['spm_model_file'])
-        print("Done")
     return learner_obj
 
 if __name__ == "__main__":
@@ -151,7 +139,7 @@ if __name__ == "__main__":
     argz.add_argument("--label-map", required=True, help="Path to a labels file (one label per line)")
     argz.add_argument("--batch-size", default=64, type=int, help="Batch size")
     argz.add_argument("--vocab-size", required=True, type=int, help="Vocabulary size")
-    argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs to train for")
+    argz.add_argument("--num-epochs", required=True, type=int, help="Number of epochs to train for")
     argz.add_argument("--classifier-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "\
                                                                       "Only used for finetuning starting from the second epoch.") # 5e-4
     argz.add_argument("--save-path", required=True, help="Path where the outputs will be saved")
