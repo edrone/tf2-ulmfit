@@ -2,11 +2,12 @@ import os, re, argparse
 import numpy as np
 import subprocess
 import pickle
-import tensorflow as tf
-from collections import OrderedDict
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+from collections import OrderedDict
 from torch.utils.data import TensorDataset
 from ulmfit_commons import lr_or_default, get_fastai_tensors, read_labels
 from ulmfit_text_classifier import read_numericalize
