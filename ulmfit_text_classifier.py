@@ -5,12 +5,10 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
-from modelling_scripts.ulmfit_tf2_heads import *
+from modelling_scripts.ulmfit_tf2_heads import ulmfit_document_classifier
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly, AWDCallback
 from lm_tokenizers import LMTokenizerFactory
-
-DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
-                     2: '__label__meta_minus_m', 3:'__label__meta_amb'}
+from ulmfit_commons import read_labels, read_numericalize
 
 def interactive_demo(args, label_map):
     raise NotImplementedError
@@ -40,7 +38,27 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
         if sure in ['n', 'N']:
             sys.exit(1)
 
-def evaluate(args, label_map):
+def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
+    label_map = read_labels(args['label_map'])
+    x_data, y_data, df = read_numericalize(input_file=args['train_tsv'],
+                                           spm_model_file=args['spm_model_file'],
+                                           label_map=label_map,
+                                           max_seq_len = args.get('max_seq_len'),
+                                           x_col=args['data_column_name'],
+                                           y_col=args['gold_column_name'],
+                                           sentence_tokenize=True,
+                                           cut_off_final_token=False)
+    if args.get('fixed_seq_len') is not None:
+        x_data = tf.constant(x_data, dtype=tf.int32)
+    else:
+        x_data = tf.ragged.constant(x_data, dtype=tf.int32)
+    y_data = tf.constant(y_data, dtype=tf.int32)
+    if also_return_df is True:
+        return x_data, y_data, label_map, df
+    else:
+        return x_data, y_data, label_map
+
+def evaluate(args):
     x_data, labels, spm_args = read_numericalize(input_file=args['test_tsv'],
                                                  spm_model_file=args['spm_model_file'],
                                                  label_map=label_map,
@@ -59,37 +77,23 @@ def evaluate(args, label_map):
     print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
     return ulmfit_classifier, x_data, labels
     
-def main(args, label_map):
+def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
-    x_data, labels, spm_args = read_numericalize(input_file=args['train_tsv'],
-                                                 spm_model_file=args['spm_model_file'],
-                                                 label_map=label_map,
-                                                 max_seq_len = args.get('max_seq_len'),
-                                                 x_col=args['data_column_name'],
-                                                 y_col=args['gold_column_name'],
-                                                 sentence_tokenize=True,
-                                                 cut_off_final_token=True)
+    x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     if args.get('test_tsv') is not None:
-        y_data, y_labels, spm_args = read_numericalize(input_file=args['test_tsv'],
-                                                       spm_model_file=args['spm_model_file'],
-                                                       label_map=label_map,
-                                                       max_seq_len = args.get('max_seq_len'),
-                                                       x_col=args['data_column_name'],
-                                                       y_col=args['gold_column_name'],
-                                                       sentence_tokenize=True,
-                                                       cut_off_final_token=True)
+        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+                                                               also_return_df=True)
     else:
-        y_data = y_labels = None
-    if args.get('fixed_seq_len') is not None:
-        raise NotImplementedError("Not implemented yet")
-    else:
-        ulmfit_classifier, hub_object = ulmfit_document_classifier(model_type=args['model_type'],
-                                                                   pretrained_encoder_weights=args['model_weights_cp'],
-                                                                   spm_model_args=spm_args,
-                                                                   fixed_seq_len=args.get('fixed_seq_len'),
-                                                                   num_classes=args['num_classes'])
+        x_test = y_test = None
+    spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
+                'lumped_sents_separator': '[SEP]'}
+    ulmfit_classifier, hub_object = ulmfit_document_classifier(model_type=args['model_type'],
+                                                               pretrained_encoder_weights=args['model_weights_cp'],
+                                                               spm_model_args=spm_args,
+                                                               fixed_seq_len=args.get('fixed_seq_len'),
+                                                               num_classes=len(label_map))
     ulmfit_classifier.summary()
-    print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
+    print(f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}")
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=args['lr'], beta_1=0.7, beta_2=0.99)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     ulmfit_classifier.compile(optimizer=optimizer_fn,
@@ -108,9 +112,9 @@ def main(args, label_map):
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None,
                                      hub_object=hub_object))
-    validation_data = (y_data, y_labels) if y_data is not None else None
+    validation_data = (x_test, y_test) if x_test is not None else None
     #exit(0)
-    ulmfit_classifier.fit(x=x_data, y=labels, batch_size=args['batch_size'],
+    ulmfit_classifier.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
                           validation_data=validation_data,
                           epochs=args['num_epochs'],
                           callbacks=callbacks)
@@ -139,26 +143,19 @@ if __name__ == "__main__":
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--label-map", required=False, help="Path to a JSON file containing labels. If not given, " \
-                                                          "4 classes will be used.")
-    argz.add_argument("--num-classes", type=int, default=4, help="Number of label categories")
+    argz.add_argument("--label-map", required=True, help="Path to a text file containing labels")
     argz.add_argument("--out-cp-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
               "tensors to set a fixed sequence length with automatic padding, not both.")
         exit(1)
-    if argz.get('label_map') is not None:
-        label_map = open(argz['label_map'], 'r', encoding='utf-8').readlines()
-        label_map = {k:v.strip() for k,v in enumerate(label_map) if len(v)>0}
-    else:
-        label_map = DEFAULT_LABEL_MAP
     if argz.get('interactive') is True:        
-        interactive_demo(argz, label_map)
+        interactive_demo(argz)
     if argz.get('train_tsv'):
-        main(argz, label_map)
+        main(argz)
     elif argz.get('test_tsv'):
-        evaluate(argz, label_map)
+        evaluate(argz)
     else:
         print("Unknown action")
         exit(-1)

@@ -33,19 +33,19 @@ def restore_encoder(*, pth_file, text_classifier):
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     label_map = read_labels(args['label_map'])
-    x_train, y_train, df = read_numericalize(input_file=tsv_file,
-                                                 spm_model_file=args['spm_model_file'],
-                                                 label_map=label_map,
-                                                 fixed_seq_len = args.get('fixed_seq_len'),
-                                                 max_seq_len = args.get('fixed_seq_len'),
-                                                 x_col=args['data_column_name'],
-                                                 y_col=args['gold_column_name'],
-                                                 sentence_tokenize=True,
-                                                 cut_off_final_token=False)
+    x_data, y_data, df = read_numericalize(input_file=tsv_file,
+                                           spm_model_file=args['spm_model_file'],
+                                           label_map=label_map,
+                                           fixed_seq_len = args.get('fixed_seq_len'),
+                                           max_seq_len = args.get('fixed_seq_len'),
+                                           x_col=args['data_column_name'],
+                                           y_col=args['gold_column_name'],
+                                           sentence_tokenize=True,
+                                           cut_off_final_token=False)
     if also_return_df is True:
-        return x_train, y_train, label_map, df
+        return x_data, y_data, label_map, df
     else:
-        return x_train, y_train, label_map
+        return x_data, y_data, label_map
 
 def make_fastai_learner(*, args, x_train, y_train, x_test, y_test, label_map, splits):
     x_data = [TensorText(k) for k in x_train] + [TensorText(k) for k in x_test]
