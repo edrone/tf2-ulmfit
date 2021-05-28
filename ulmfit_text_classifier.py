@@ -1,4 +1,4 @@
-import os, sys, argparse, readline
+import os, sys, argparse, readline, math
 import json
 import nltk
 import pandas as pd
@@ -9,6 +9,29 @@ from modelling_scripts.ulmfit_tf2_heads import ulmfit_document_classifier
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly, AWDCallback
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_labels, read_numericalize
+
+class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, lr_max, num_steps, cut_frac=0.1, ratio=32):
+        self.lr_max = lr_max   # 0.01
+        self.T = num_steps     # 900, which is 90 steps over 10 epochs
+        self.cut_frac = cut_frac # 0.1
+        self.cut = math.floor(num_steps * cut_frac) # 90
+        self.ratio = ratio
+
+    def __call__(self, step):
+        def warmup(): return step / self.cut
+        def cooldown(): return 1 - ((step - self.cut)/(self.cut*(1/(self.cut_frac)-1)))
+        def pazz():
+            return None
+        
+        p = tf.cond(tf.less(step, self.cut), warmup, cooldown)
+        current_lr = self.lr_max * ( (1 + (p*(self.ratio - 1))) / self.ratio)
+
+        # def printstep():
+        #     tf.print(f"Step {step} LR = {current_lr}")
+        #     return None 
+        # tf.cond(step % 10 == 0, printstep , pazz)
+        return current_lr
 
 def interactive_demo(args, label_map):
     raise NotImplementedError
@@ -93,8 +116,15 @@ def main(args):
                                                                fixed_seq_len=args.get('fixed_seq_len'),
                                                                num_classes=len(label_map))
     ulmfit_classifier.summary()
-    print(f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}")
-    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=args['lr'], beta_1=0.7, beta_2=0.99)
+    num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
+    print(f"************************ TRAINING INFO ***************************\n" \
+          f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}\n" \
+          f"Batch size: {args['batch_size']}, Epochs: {args['num_epochs']}, \n" \
+          f"Steps per epoch: {x_train.shape[0] // args['batch_size']} \n" \
+          f"Total steps: {num_steps}\n" \
+          f"******************************************************************")
+    scheduler = STLRSchedule(args['lr'], num_steps)
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     ulmfit_classifier.compile(optimizer=optimizer_fn,
                               loss=loss_fn,
@@ -102,16 +132,17 @@ def main(args):
     cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
     final_dir = os.path.join(args['out_cp_path'], 'final')
     for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
-    callbacks = [
-        tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'),
-        tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'classifier_model'),
-                                           monitor='val_sparse_categorical_accuracy',
-                                           save_best_only=True,
-                                           save_weights_only=True)
-    ]
+    callbacks = []
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None,
                                      hub_object=hub_object))
+    if args.get('tensorboard'):
+        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'))
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'classifier_model'),
+                                           monitor='val_sparse_categorical_accuracy',
+                                           save_best_only=True,
+                                           save_weights_only=True))
+    
     validation_data = (x_test, y_test) if x_test is not None else None
     #exit(0)
     ulmfit_classifier.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
@@ -119,7 +150,7 @@ def main(args):
                           epochs=args['num_epochs'],
                           callbacks=callbacks)
     ulmfit_classifier.save_weights(os.path.join(final_dir, 'classifier_final'))
-    return ulmfit_classifier, x_data, labels, loss_fn, optimizer
+    return ulmfit_classifier, x_train, y_train, loss_fn, optimizer
 
 if __name__ == "__main__":
     # TODO: the weights checkpoint quirk should be done away with, but to serialize anything custom into a SavedModel
@@ -145,6 +176,7 @@ if __name__ == "__main__":
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=True, help="Path to a text file containing labels")
     argz.add_argument("--out-cp-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
+    argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
