@@ -6,38 +6,11 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import *
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy
-from ulmfit_commons import apply_awd_eagerly, AWDCallback
+from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly, AWDCallback
 from lm_tokenizers import LMTokenizerFactory
 
 DEFAULT_LABEL_MAP = {0: '__label__meta_zero', 1: '__label__meta_plus_m',
                      2: '__label__meta_minus_m', 3:'__label__meta_amb'}
-
-def read_numericalize(*, input_file, spm_model_file, label_map, max_seq_len=None, fixed_seq_len=None,
-                      x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
-    df = pd.read_csv(input_file, sep='\t')
-    df[y_col] = df[y_col].astype(str)
-    df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
-    if sentence_tokenize is True:
-        df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
-        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
-                             .map(lambda t: "[SEP]".join(t))
-    spm_args = {'spm_path': spm_model_file,
-                'add_bos': True,
-                'add_eos': True,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spm_layer = SPMNumericalizer(**spm_args)
-    spm_args['spm_model_file'] = spm_args.pop('spm_path') # gosh...
-    x_data = spm_layer(df[x_col].tolist())
-    if cut_off_final_token is True:
-        x_data = x_data[:, :-1] # in case we want to get rid of sequences always ending in an EOS token
-    if max_seq_len is not None:
-        x_data = x_data[:, :max_seq_len]
-    if fixed_seq_len is not None:
-        x_data = x_data.to_tensor(1)
-    labels = df[y_col].to_numpy()
-    return x_data, labels, spm_args
 
 def interactive_demo(args, label_map):
     raise NotImplementedError

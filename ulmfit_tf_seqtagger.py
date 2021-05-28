@@ -5,8 +5,7 @@ import tensorflow_hub as hub
 import tensorflow_text
 from ptools.lipytools.little_methods import r_jsonl
 from modelling_scripts.ulmfit_tf2_heads import *
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy
-from ulmfit_commons import apply_awd_eagerly
+from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
 from lm_tokenizers import LMTokenizerFactory
 
 DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'} # fixme: label map should not be hardcoded (maybe pass as parameter?)

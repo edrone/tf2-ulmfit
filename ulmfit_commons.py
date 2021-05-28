@@ -3,7 +3,6 @@ import numpy as np
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
-import tensorflow as tf
 
 """ Various ULMFit / FastAI related utils """
 
@@ -51,27 +50,29 @@ def get_fastai_tensors(args):
                 cnt += 1
     return L_tensors_train, L_tensors_valid
 
-def get_fastai_tensors(args):
-    """ Read pretokenized and numericalized corpora and return them as TensorText objects understood by
-        the scantily documented FastAI's voodoo language model loaders.
-    """
-    L_tensors_train = L()
-    L_tensors_valid = L()
-    data_sources = [(args['pretokenized_train'], 'trainset', L_tensors_train)]
-    if args.get('pretokenized_valid') is not None:
-        data_sources.append((args['pretokenized_valid'], 'validset', L_tensors_valid))
-
-    for datasource_path, datasource_name, L_tensors in data_sources:
-        with open(datasource_path, 'r', encoding='utf-8') as f:
-            print(f"Reading {datasource_name} from {datasource_path}")
-            num_sents = file_len(datasource_path)
-            cnt = 0
-            for line in f:
-                if cnt % 10000 == 0: print(f"Processing {datasource_name}: line {cnt} / {num_sents}...")
-                tokens = TensorText(list(map(int, line.split())))
-                if len(tokens) > args['min_seq_len']: L_tensors.append(tokens)
-                cnt += 1
-    return L_tensors_train, L_tensors_valid
+def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map, max_seq_len=None, fixed_seq_len=None,
+                      x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
+    import pandas as pd
+    import sentencepiece as spm
+    import nltk
+    df = pd.read_csv(input_file, sep=sep)
+    df[y_col] = df[y_col].astype(str)
+    df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
+    if sentence_tokenize is True:
+        df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
+        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
+                             .map(lambda t: "[SEP]".join(t))
+    spmproc = spm.SentencePieceProcessor(spm_model_file)
+    spmproc.set_encode_extra_options("bos:eos")
+    x_data = spmproc.tokenize(df[x_col].tolist())
+    if cut_off_final_token is True:
+        x_data = [d[:-1] for d in x_data]
+    if max_seq_len is not None:
+        x_data = [d[:max_seq_len] for d in x_data]
+    if fixed_seq_len is not None:
+        x_data = [d + [1]*(fixed_seq_len - len(d)) for d in x_data]
+    labels = df[y_col].tolist()
+    return x_data, labels, df
 
 def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file):
     """
@@ -112,37 +113,4 @@ def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file):
     lm_num.save_weights(os.path.join(save_path, exp_name))
     return lm_num, encoder_num, outmask_num, spm_encoder_model
 
-def apply_awd_eagerly(encoder_num, awd_rate):
-    """ Apply AWD in TF eager mode
 
-        Note: there is also a variant of this function that is serialized into a SavedModel.
-        See ExportableULMFiT object for details.
-    """
-    # tf.print("Applying AWD eagerly")
-    rnn1_w = encoder_num.get_layer("AWD_RNN1").variables
-    rnn2_w = encoder_num.get_layer("AWD_RNN2").variables
-    rnn3_w = encoder_num.get_layer("AWD_RNN3").variables
-
-    w1_mask = tf.nn.dropout(tf.fill(rnn1_w[1].shape, 1-awd_rate), rate=awd_rate)
-    rnn1_w[1].assign(w1_mask * rnn1_w[1])
-
-    w2_mask = tf.nn.dropout(tf.fill(rnn2_w[1].shape, 1-awd_rate), rate=awd_rate)
-    rnn2_w[1].assign(w2_mask * rnn2_w[2])
-
-    w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
-    rnn3_w[1].assign(w3_mask * rnn3_w[2])
-
-class AWDCallback(tf.keras.callbacks.Callback):
-    def __init__(self, *, model_object=None, hub_object=None, awd_rate=0.5):
-        super().__init__()
-        if not any([model_object, hub_object]) or all([model_object, hub_object]):
-            raise ValueError("Pass either `model_object` (for eager mode) or `hub_object` (for graph mode), not none, not both.")
-        self.model_object = model_object
-        self.hub_object = hub_object
-        self.awd_rate = awd_rate
-
-    def on_train_batch_begin(self, batch, logs=None):
-        if self.hub_object is not None:
-            self.hub_object.apply_awd(self.awd_rate)
-        else:
-            apply_awd_eagerly(self.model_object, self.awd_rate)
