@@ -1,9 +1,13 @@
-# Language modelling scripts
+# Using ULMFiT for Tensorflow 2.0
+
+
+
+## Language model
 
 This directory contains training scripts for recurrent language models. The [modelling_scripts](modelling_scripts) directory contains [Hubert's repo](https://github.com/hubertkarbowy/LanguageModellingScripts) as a submodule.
 
 
-## How to train a new ULMFiT language model?
+### How to train a new ULMFiT language model?
 
 We still do this in FastAI and then convert the weights to a format usable with TensorFlow. To train a new language model, you will need:
 
@@ -31,7 +35,9 @@ python ./ulmfit_train.py --pretokenized_train ${TRAINSET} \
 ```
 After 20 epochs you will have a file called `my_experiment.pth` in the `output_directory`. 
 
-## How to convert a model trained in FastAI to a Tensorflow version?
+
+
+### How to convert a model trained in FastAI to a Tensorflow version?
 
 Execute the following:
 
@@ -70,7 +76,9 @@ The conversion script generates both formats. It also copies the SPM model and t
 
 ```
 
-## How to run a next-token prediction demo?
+
+
+### How to run a next-token prediction demo?
 
 The demo works similar to an autocompletion prompter, i.e. given "Drużyna Stanów Zjednoczonych zdobyła złoty medal na", the model should suggest that the next likely tokens are "mistrzostwach świata".
 
@@ -90,6 +98,93 @@ python -m modelling_scripts.lstm_with_wordpieces.04_demo \
           --model-type {MODEL_TYPE} \
           --add-bos
 ```
+
+
+
+### How to evaluate a pretrained model's perplexity?
+
+You will need:
+
+* a pretrained FastAI file (.pth) from s3://prod-edrone-ava/AVA-sandbox_resources/lm_recurrent
+* a numericalized testset file - one sentence per line. You can use the 02b_encode_spm.py script on the same .model file that was used for training.
+
+Let's say the file `/tmp/test_ids.txt`  contains tokenized text converted to token IDs. You can now run the evaluation script:
+
+```
+export TEST_IDS=/tmp/test_ids.txt
+export PRETRAINED=./converted/fastai_model/plwiki100_20epochs_50k_cased.pth
+python ./ulmfit_ppl.py --pretokenized-test ${TEST_IDS} \
+                       --pretrained-model ${PRETRAINED} \
+                       --min-seq-len 10 \
+                       --max-seq-len 100 \
+                       --batch-size 128 \
+                       --vocab-size 50000
+```
+
+Note: perplexity evaluations are slow because you need to softmax over the entire vocabulary as many number of times as there are tokens. Make sure to run them on a sample of ~10k sentences, not more.
+
+
+
+## Heads: document classification
+
+The training scripts in this repo use a TSV file format as input data for the document classifier. In addition, you will also need a **label map** which is a simple text file containing all the labels that can appear in the train/testsets, one label per line. For example a label map for the [Polemo2.0-IN](https://klejbenchmark.com/tasks/#polemo2.0-in) dataset can look like this:
+
+```etykietki.txt
+__label__meta_zero
+__label__meta_plus_m
+__label__meta_minus_m
+__label__meta_amb
+```
+
+The `data-column-name` and `gold-column-name` identify columns in the TSV file containing data and labels.
+
+* Training with FastAI:
+
+  You can optionally pass the **`--classifier-lr`** argument to set the learning rate for FastAI's `fit_one_cycle` method. If you leave this unset, the script will call `fine_tune` instead of `fit_one_cycle` and the learning rate will be set automatically with the framework's LR finder.
+
+  ```
+  export PRETRAINED=./converted/fastai_model/plwiki100_10epochs_35k_cased.pth
+  export TRAIN_TSV='train.tsv'
+  export TEST_TSV='test.tsv'
+  export SPM_MODEL=./plwiki100-sp35k.model
+  export LABEL_MAP="etykietki.txt"
+  python ./fastai_train_text_classifier.py \
+         --train-tsv ${TRAIN_TSV} \
+         --test-tsv {$TEST_TSV} \
+         --spm-model-file ${SPM_MODEL} \
+         --pretrained-model ${PRETRAINED} \
+         --fixed-seq-len 250 \
+         --label-map ${LABEL_MAP} \
+         --batch-size 64 \
+         --vocab-size 50000 \
+         --exp-name polemo_finetuned \
+         --save-path ./polemo_finetuned \
+         --data-column-name sentence \
+         --gold-column-name target \
+         --num-epochs 10
+  ```
+
+  
+
+* Evaluation with FastAI:
+
+```
+python ./fastai_train_text_classifier.py \
+       --test-tsv ${TEST_TSV} \
+       --spm-model-file ${SPM_MODEL} \
+       --pretrained-model ${PRETRAINED} \
+       --fixed-seq-len 250 \
+       --label-map ${LABEL_MAP} \
+       --batch-size 64 \
+       --vocab-size 50000 \
+       --data-column-name sentence \
+       --gold-column-name target \
+       --save-path ./results.tsv
+```
+
+* Training with Tensorflow:
+
+
 
 ## How to train a sequence tagger?
 
@@ -174,22 +269,3 @@ kę                O
 
 [WIP]
 
-## How to evaluate a pretrained model's perplexity?
-
-You will need:
-* a pretrained FastAI file (.pth) from s3://prod-edrone-ava/AVA-sandbox_resources/lm_recurrent
-* a numericalized testset file - one sentence per line. You can use the 02b_encode_spm.py script on the same .model file that was used for training.
-
-Let's say the file `/tmp/test_ids.txt`  contains tokenized text converted to token IDs. You can now run the evaluation script:
-
-```
-export TEST_IDS=/tmp/test_ids.txt
-export PRETRAINED=./converted/fastai_model/plwiki100_20epochs_50k_cased.pth
-python ./ulmfit_ppl.py --pretokenized-test ${TEST_IDS} \
-                       --pretrained-model ${PRETRAINED} \
-                       --min-seq-len 10 \
-                       --max-seq-len 100 \
-                       --batch-size 128 \
-                       --vocab-size 50000
-```
-Note: perplexity evaluations are slow because you need to softmax over the entire vocabulary as many number of times as there are tokens. Make sure to run them on a sample of ~10k sentences, not more.
