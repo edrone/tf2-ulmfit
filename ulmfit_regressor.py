@@ -5,12 +5,12 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
-from modelling_scripts.ulmfit_tf2_heads import ulmfit_document_classifier
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly, AWDCallback, STLRSchedule
+from modelling_scripts.ulmfit_tf2_heads import ulmfit_regressor
+from modelling_scripts.ulmfit_tf2 import apply_awd_eagerly, AWDCallback, STLRSchedule
 from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import read_labels, read_numericalize
+from ulmfit_commons import read_numericalize
 
-def interactive_demo(args, label_map):
+def interactive_demo(args):
     raise NotImplementedError
 
 def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
@@ -39,10 +39,8 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
             sys.exit(1)
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
-    label_map = read_labels(args['label_map'])
     x_data, y_data, df = read_numericalize(input_file=args['train_tsv'],
                                            spm_model_file=args['spm_model_file'],
-                                           label_map=label_map,
                                            max_seq_len = args.get('max_seq_len'),
                                            x_col=args['data_column_name'],
                                            y_col=args['gold_column_name'],
@@ -52,11 +50,22 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
         x_data = tf.constant(x_data, dtype=tf.int32)
     else:
         x_data = tf.ragged.constant(x_data, dtype=tf.int32)
-    y_data = tf.constant(y_data, dtype=tf.int32)
+    y_data = tf.constant(y_data, dtype=tf.float32) # real-valued numbers
+    if args.get('normalize_labels') is True:
+        max_label_value = tf.reduce_max(y_data)
+        y_data = (y_data - 1.0) / (max_label_value - 1.0)
     if also_return_df is True:
-        return x_data, y_data, label_map, df
+        return x_data, y_data, df
     else:
-        return x_data, y_data, label_map
+        return x_data, y_data
+
+def get_keras_regression_objects(loss_fn_name):
+    if loss_fn_name == 'mae':
+        return tf.keras.losses.MeanAbsoluteError(), tf.keras.metrics.MeanAbsoluteError()
+    elif loss_fn_name == 'mse':
+        return tf.keras.losses.MeanSquaredError(), tf.keras.metrics.MeanSquaredError()
+    else:
+        raise ValueError(f"Unknown loss function name {loss_fn_name}")
 
 def evaluate(args):
     x_data, labels, spm_args = read_numericalize(input_file=args['test_tsv'],
@@ -79,20 +88,21 @@ def evaluate(args):
     
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
-    x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
+    x_train, y_train = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
+    print(y_train)
     if args.get('test_tsv') is not None:
-        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
-                                                               also_return_df=True)
+        x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+                                                            also_return_df=True)
     else:
         x_test = y_test = None
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
-    ulmfit_classifier, hub_object = ulmfit_document_classifier(model_type=args['model_type'],
-                                                               pretrained_encoder_weights=args['model_weights_cp'],
-                                                               spm_model_args=spm_args,
-                                                               fixed_seq_len=args.get('fixed_seq_len'),
-                                                               num_classes=len(label_map))
-    ulmfit_classifier.summary()
+    ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
+                                                    pretrained_encoder_weights=args['model_weights_cp'],
+                                                    spm_model_args=spm_args,
+                                                    fixed_seq_len=args.get('fixed_seq_len'),
+                                                    with_batch_normalization=False)
+    ulmfit_regressor_model.summary()
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print(f"************************ TRAINING INFO ***************************\n" \
           f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}\n" \
@@ -102,31 +112,31 @@ def main(args):
           f"******************************************************************")
     scheduler = STLRSchedule(args['lr'], num_steps)
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-    ulmfit_classifier.compile(optimizer=optimizer_fn,
-                              loss=loss_fn,
-                              metrics=['sparse_categorical_accuracy'])
+    loss_fn, loss_metric = get_keras_regression_objects(args['loss_fn'])
+    ulmfit_regressor_model.compile(optimizer=optimizer_fn,
+                                   loss=loss_fn,
+                                   metrics=[loss_metric])
     cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
     final_dir = os.path.join(args['out_cp_path'], 'final')
     for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
     callbacks = []
     if not args.get('awd_off'):
-        callbacks.append(AWDCallback(model_object=ulmfit_classifier if hub_object is None else None,
+        callbacks.append(AWDCallback(model_object=ulmfit_regressor_model if hub_object is None else None,
                                      hub_object=hub_object))
     if args.get('tensorboard'):
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'))
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'classifier_model'),
-                                           monitor='val_sparse_categorical_accuracy',
+    # fixme: validation metric below
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'regressor_model'),
+                                           monitor='val_mean_absolute_error',
                                            save_best_only=True,
                                            save_weights_only=True))
     
     validation_data = (x_test, y_test) if x_test is not None else None
-    #exit(0)
-    ulmfit_classifier.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
-                          validation_data=validation_data,
-                          epochs=args['num_epochs'],
-                          callbacks=callbacks)
-    ulmfit_classifier.save_weights(os.path.join(final_dir, 'classifier_final'))
+    ulmfit_regressor_model.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
+                               validation_data=validation_data,
+                               epochs=args['num_epochs'],
+                               callbacks=callbacks)
+    ulmfit_regressor_model.save_weights(os.path.join(final_dir, 'regressor_final'))
     return ulmfit_classifier, x_train, y_train, loss_fn, optimizer
 
 if __name__ == "__main__":
@@ -150,8 +160,9 @@ if __name__ == "__main__":
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
+    argz.add_argument("--loss-fn", default='mae', choices=['mae', 'mse'], help="Loss function for regression (MAE or MSE).")
+    argz.add_argument("--normalize-labels", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--label-map", required=True, help="Path to a text file containing labels")
     argz.add_argument("--out-cp-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())

@@ -50,14 +50,15 @@ def get_fastai_tensors(args):
                 cnt += 1
     return L_tensors_train, L_tensors_valid
 
-def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map, max_seq_len=None, fixed_seq_len=None,
+def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map=None, max_seq_len=None, fixed_seq_len=None,
                       x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
     import pandas as pd
     import sentencepiece as spm
     import nltk
     df = pd.read_csv(input_file, sep=sep)
-    df[y_col] = df[y_col].astype(str)
-    df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
+    if label_map is not None:
+        df[y_col] = df[y_col].astype(str)
+        df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
     if sentence_tokenize is True:
         df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
         df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
