@@ -20,7 +20,8 @@ def main(args):
     logging.info(f"Fitting the SPM tokenizer - will save to {model_prefix}")
     spm.SentencePieceTrainer.train(input=args['corpus_path'], vocab_size=args['vocab_size'], \
                                    unk_id=0, pad_id=1, bos_id=2, eos_id=3, model_prefix=model_prefix, \
-                                   model_type='bpe', character_coverage=0.995, num_threads=4)
+                                   model_type='bpe', character_coverage=0.9995, num_threads=4, \
+                                   user_defined_symbols=['?', '!'])
     print("Training completed!. Now run the 02b_encode_spm.py script to convert your corpus to token ids.")
     print("Alternatively, you can use spm_encode as follows (you won't get corpus stats, though):")
     print()

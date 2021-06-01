@@ -3,6 +3,7 @@ import unicodedata
 import logging
 import nltk
 import re
+from polish_sentence_nltk_tokenizer import extra_abbreviations
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,7 +17,7 @@ python ./01_cleanup.py \
 """
 
 
-def basic_cleanup(corpus_blob, lang):
+def basic_cleanup(corpus_blob, lang, sent_tokenizer):
     """ Cleans up for building SentencePiece model.
     
     corpus_blob - continuous text
@@ -26,8 +27,15 @@ def basic_cleanup(corpus_blob, lang):
     corpus_blob = corpus_blob.split('\n')
     corpus_blob = [s for s in corpus_blob if not (s.startswith("=") and s.endswith("="))]
     corpus_blob = " ".join(corpus_blob)
-    sents = nltk.sent_tokenize(corpus_blob, language=lang) # sentence-tokenize
+    sents = sent_tokenizer.tokenize(corpus_blob) # sentence-tokenize
+    logging.info("Delicately splitting some punctuation characters")
+    sents = [re.sub(r"(\w)([,!\?])", "\\1 \\2 ", sent) for sent in sents] # that extra space after the second group is deliberate
+    logging.info("Splitting the sentence-final dot")
+    sents = [re.sub(r"\.$", " .", sent) for sent in sents]
+    logging.info("Some more regexps...")
+    sents = [re.sub(r"([\"”„\(\)])", " \\1 ", sent) for sent in sents]
     sents = [re.sub("(&quot\s*;|&amp\s;)", "", sent) for sent in sents] # remove html quirks
+    sents = [re.sub("\s{2,}", " ", sent) for sent in sents] # remove extra spaces
     sents = [unicodedata.normalize('NFKC', sent) for sent in sents]
     return sents
 
@@ -141,7 +149,9 @@ def main(args):
     with open(args['input_text'], 'r', encoding='utf-8') as f:
         corpus_blob = f.read()
     logging.info(f"Cleaning up the input file...")
-    sents = basic_cleanup(corpus_blob, args['lang'])
+    sent_tokenizer = nltk.data.load(f'tokenizers/punkt/{args["lang"]}.pickle')
+    sent_tokenizer._params.abbrev_types.update(extra_abbreviations)
+    sents = basic_cleanup(corpus_blob, args['lang'], sent_tokenizer)
     if args.get('uncased') is True:
         logging.info(f"Downcasing...")
         sents = [sent.lower() for sent in sents]
