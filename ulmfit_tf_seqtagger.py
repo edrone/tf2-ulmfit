@@ -7,6 +7,7 @@ from ptools.lipytools.little_methods import r_jsonl
 from modelling_scripts.ulmfit_tf2_heads import *
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
 from lm_tokenizers import LMTokenizerFactory
+from ulmfit_commons import check_unbounded_training
 
 DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
 
@@ -91,19 +92,6 @@ def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, ste
 
     grads = tape.gradient(loss_value, model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
-def check_unbounded_training(fixed_seq_len, max_seq_len):
-    if not any([fixed_seq_len, max_seq_len]):
-        print("Warning: you have requested training with an unspecified sequence length. " \
-             "This script will not truncate any sequence, but you should make sure that " \
-             "all your training examples are reasonably long. You should be fine if your " \
-             "training set is split into sentences, but DO make sure that none of them " \
-             "runs into thousands of tokens or you will get out-of-memory errors.\n\n")
-        sure = "?"
-        while sure not in ['y', 'Y', 'n', 'N']:
-            sure = input("Are you sure you want to continue? (y/n) ")
-        if sure in ['n', 'N']:
-            sys.exit(1)
 
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))

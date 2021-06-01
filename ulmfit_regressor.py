@@ -8,23 +8,10 @@ import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_regressor
 from modelling_scripts.ulmfit_tf2 import apply_awd_eagerly, AWDCallback, STLRSchedule
 from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import read_numericalize
+from ulmfit_commons import read_numericalize, check_unbounded_training
 
 def interactive_demo(args):
     raise NotImplementedError
-
-def check_unbounded_training(fixed_seq_len, max_seq_len):
-    if not any([fixed_seq_len, max_seq_len]):
-        print("Warning: you have requested training with an unspecified sequence length. " \
-             "This script will not truncate any sequence, but you should make sure that " \
-             "all your training examples are reasonably long. You should be fine if your " \
-             "training set is split into sentences, but DO make sure that none of them " \
-             "runs into thousands of tokens or you will get out-of-memory errors.\n\n")
-        sure = "?"
-        while sure not in ['y', 'Y', 'n', 'N']:
-            sure = input("Are you sure you want to continue? (y/n) ")
-        if sure in ['n', 'N']:
-            sys.exit(1)
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     x_data, y_data, df = read_numericalize(input_file=args['train_tsv'],
