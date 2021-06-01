@@ -144,6 +144,7 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
         else:
             last_hidden_state = ulmfit_rnn_encoder.output[:, -1, :]
         last_hidden_state_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=last_hidden_state)
+        hub_object = None
 
     ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
     elif model_type == 'from_hub':
@@ -159,7 +160,7 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
         last_hidden_state_model = tf.keras.models.Model(inputs=il, outputs=last_hidden_state)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-    return last_hidden_state_model
+    return last_hidden_state_model, hub_object
 
 def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes,
                                spm_model_args=None, fixed_seq_len=None,
