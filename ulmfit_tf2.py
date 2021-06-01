@@ -1,3 +1,4 @@
+import math
 import tensorflow as tf
 import tensorflow_text as text
 from tensorflow.python.ops import math_ops
@@ -782,6 +783,10 @@ def apply_awd_eagerly(encoder_num, awd_rate):
     rnn3_w[1].assign(w3_mask * rnn3_w[2])
 
 class AWDCallback(tf.keras.callbacks.Callback):
+    """
+    Keras-compatible callback which applies AWD after each batch.
+    Works with both weights and SavedModel formats
+    """
     def __init__(self, *, model_object=None, hub_object=None, awd_rate=0.5):
         super().__init__()
         if not any([model_object, hub_object]) or all([model_object, hub_object]):
@@ -795,3 +800,24 @@ class AWDCallback(tf.keras.callbacks.Callback):
             self.hub_object.apply_awd(self.awd_rate)
         else:
             apply_awd_eagerly(self.model_object, self.awd_rate)
+
+# TODO: make this serializable and try saving it together with ExportableModel
+class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    """
+    Implementation of slanted triangular learning rates as a Keras LR scheduler.
+    You can pass an instance of this class to the optimizer instead of a fixed LR value.
+    """
+    def __init__(self, lr_max, num_steps, cut_frac=0.1, ratio=32):
+        self.lr_max = lr_max   # 0.01
+        self.T = num_steps     # 900, which is 90 steps over 10 epochs
+        self.cut_frac = cut_frac # 0.1
+        self.cut = math.floor(num_steps * cut_frac) # 90
+        self.ratio = ratio
+
+    def __call__(self, step):
+        def warmup(): return step / self.cut
+        def cooldown(): return 1 - ((step - self.cut)/(self.cut*(1/(self.cut_frac)-1)))
+
+        p = tf.cond(tf.less(step, self.cut), warmup, cooldown)
+        current_lr = self.lr_max * ( (1 + (p*(self.ratio - 1))) / self.ratio)
+        return current_lr

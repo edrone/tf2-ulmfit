@@ -161,7 +161,9 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
         raise ValueError(f"Unknown model type {args['model_type']}")
     return last_hidden_state_model
 
-def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes, spm_model_args=None, fixed_seq_len=None):
+def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes,
+                               spm_model_args=None, fixed_seq_len=None,
+                               with_batch_normalization=True, activation='softmax'):
     """
     Document classification head as per the ULMFiT paper:
        - AvgPool + MaxPool + Last hidden state
@@ -192,14 +194,18 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
             rpooler = ConcatPooler(name="ConcatPooler")(kl)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-    bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(rpooler)
-    drop1 = tf.keras.layers.Dropout(0.4)(bnorm1)
-    #drop1 = tf.keras.layers.Dropout(0.4)(rpooler)
+    if with_batch_normalization is True:
+        bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(rpooler)
+        drop1 = tf.keras.layers.Dropout(0.4)(bnorm1)
+    else:
+        drop1 = tf.keras.layers.Dropout(0.4)(rpooler)
     fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
-    bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(fc1)
-    drop2 = tf.keras.layers.Dropout(0.1)(bnorm2)
-    #drop2 = tf.keras.layers.Dropout(0.1)(fc1)
-    fc_final = tf.keras.layers.Dense(num_classes, activation='softmax')(drop2)
+    if with_batch_normalization is True:
+        bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(fc1)
+        drop2 = tf.keras.layers.Dropout(0.1)(bnorm2)
+    else:
+        drop2 = tf.keras.layers.Dropout(0.1)(fc1)
+    fc_final = tf.keras.layers.Dense(num_classes, activation=activation)(drop2)
     if model_type == 'from_cp':
         document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.input, outputs=fc_final)
     elif model_type == 'from_hub':
@@ -207,6 +213,23 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
     return document_classifier_model, hub_object
+
+def ulmfit_regressor(*, model_type, pretrained_encoder_weights,
+                     spm_model_args=None, fixed_seq_len=None,
+                     with_batch_normalization=True):
+    """
+    Regression head which outputs a single numerical value. The architecture is similar to
+    the document classification head and differs only in the last layer (a single neuron
+    with no activation instead of softmax).
+    """
+    regressor, hub_object = ulmfit_document_classifier(model_type=model_type,
+                                                       pretrained_encoder_weights=pretrained_encoder_weights,
+                                                       num_classes=1,
+                                                       spm_model_args=spm_model_args,
+                                                       fixed_seq_len=fixed_seq_len,
+                                                       with_batch_normalization=with_batch_normalization,
+                                                       activation='linear')
+    return regressor, hub_object
 
 ########### ## THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
 
