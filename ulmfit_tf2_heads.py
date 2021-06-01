@@ -192,11 +192,13 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
             rpooler = ConcatPooler(name="ConcatPooler")(kl)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-    bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1)(rpooler)
+    bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(rpooler)
     drop1 = tf.keras.layers.Dropout(0.4)(bnorm1)
+    #drop1 = tf.keras.layers.Dropout(0.4)(rpooler)
     fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
-    bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1)(fc1)
+    bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(fc1)
     drop2 = tf.keras.layers.Dropout(0.1)(bnorm2)
+    #drop2 = tf.keras.layers.Dropout(0.1)(fc1)
     fc_final = tf.keras.layers.Dense(num_classes, activation='softmax')(drop2)
     if model_type == 'from_cp':
         document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.input, outputs=fc_final)

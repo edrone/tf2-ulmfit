@@ -212,7 +212,7 @@ class ExportableULMFiT(tf.keras.Model):
 
     @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.float32)])
     def apply_awd(self, awd_rate):
-        tf.print("Applying AWD in graph mode")
+        # tf.print("Applying AWD in graph mode")
         rnn1_w = self.encoder_num.get_layer("AWD_RNN1").variables
         rnn2_w = self.encoder_num.get_layer("AWD_RNN2").variables
         rnn3_w = self.encoder_num.get_layer("AWD_RNN3").variables
@@ -307,7 +307,7 @@ class ExportableULMFiTRagged(tf.keras.Model):
 
     @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.float32)])
     def apply_awd(self, awd_rate):
-        tf.print("Applying AWD in graph mode and ragged tensors")
+        # tf.print("Applying AWD in graph mode and ragged tensors")
         rnn1_w = self.encoder_num.get_layer("AWD_RNN1").variables
         rnn2_w = self.encoder_num.get_layer("AWD_RNN2").variables
         rnn3_w = self.encoder_num.get_layer("AWD_RNN3").variables
