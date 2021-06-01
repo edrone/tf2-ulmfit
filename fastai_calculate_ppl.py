@@ -5,7 +5,8 @@ import pickle
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
-from ulmfit_commons import file_len, get_fastai_tensors
+from ulmfit_commons import file_len
+from fastai_lm_utils import get_fastai_tensors
 
 """
 Calculate the perplexity of a pretrained ULMFit language model the FastAI way

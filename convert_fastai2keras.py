@@ -1,7 +1,7 @@
 import os, shutil
 import argparse
 import tensorflow as tf
-from ulmfit_commons import save_as_keras
+from fastai_lm_utils import save_as_keras
 from modelling_scripts.ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged
 from fastai.basics import *
 from fastai.callback.all import *

@@ -13,18 +13,6 @@ from ulmfit_commons import read_numericalize
 def interactive_demo(args):
     raise NotImplementedError
 
-def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
-    if awd_off is not True:
-        if hub_object is not None: hub_object.apply_awd(0.5)
-        else: apply_awd_eagerly(model, 0.5)
-    with tf.GradientTape() as tape:
-        y_preds = model(x, training=True)
-        loss_value = loss_fn(y_true=y, y_pred=y_preds)
-        print(f"Step {step_info[0]}/{step_info[1]} | batch loss before applying gradients: {loss_value}")
-
-    grads = tape.gradient(loss_value, model.trainable_variables)
-    optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
 def check_unbounded_training(fixed_seq_len, max_seq_len):
     if not any([fixed_seq_len, max_seq_len]):
         print("Warning: you have requested training with an unspecified sequence length. " \

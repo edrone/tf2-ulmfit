@@ -1,24 +1,10 @@
-import os, subprocess
+import os
 import numpy as np
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
 
 """ Various ULMFit / FastAI related utils """
-
-def file_len(fname):
-    """ Nothing beats wc -l """
-    p = subprocess.Popen(['wc', '-l', fname], stdout=subprocess.PIPE, 
-                                              stderr=subprocess.PIPE)
-    result, err = p.communicate()
-    if p.returncode != 0:
-        raise IOError(err)
-    return int(result.strip().split()[0])
-
-def read_labels(fname):
-    label_map = open(fname, 'r', encoding='utf-8').readlines()
-    label_map = {k:v.strip() for k,v in enumerate(label_map) if len(v)>0}
-    return label_map
 
 def lr_or_default(lr, learner_obj):
     if lr is not None:
@@ -49,31 +35,6 @@ def get_fastai_tensors(args):
                 if len(tokens) > args['min_seq_len']: L_tensors.append(tokens)
                 cnt += 1
     return L_tensors_train, L_tensors_valid
-
-def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map=None, max_seq_len=None, fixed_seq_len=None,
-                      x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
-    import pandas as pd
-    import sentencepiece as spm
-    import nltk
-    df = pd.read_csv(input_file, sep=sep)
-    if label_map is not None:
-        df[y_col] = df[y_col].astype(str)
-        df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
-    if sentence_tokenize is True:
-        df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
-        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
-                             .map(lambda t: "[SEP]".join(t))
-    spmproc = spm.SentencePieceProcessor(spm_model_file)
-    spmproc.set_encode_extra_options("bos:eos")
-    x_data = spmproc.tokenize(df[x_col].tolist())
-    if cut_off_final_token is True:
-        x_data = [d[:-1] for d in x_data]
-    if max_seq_len is not None:
-        x_data = [d[:max_seq_len] for d in x_data]
-    if fixed_seq_len is not None:
-        x_data = [d + [1]*(fixed_seq_len - len(d)) for d in x_data]
-    labels = df[y_col].tolist()
-    return x_data, labels, df
 
 def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file):
     """

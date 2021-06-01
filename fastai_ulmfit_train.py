@@ -6,7 +6,7 @@ import pickle
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
-from ulmfit_commons import lr_or_default, get_fastai_tensors, save_as_keras
+from fastai_lm_utils import lr_or_default, get_fastai_tensors, save_as_keras
 
 """
 Pre-train ULMFit on already tokenized and numericalized corpora.
