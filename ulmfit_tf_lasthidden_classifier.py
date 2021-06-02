@@ -9,7 +9,6 @@ from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, pr
 from lm_tokenizers import LMTokenizerFactory
 
 def interactive_demo(args):
-    raise NotImplementedError
     spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
                                                tokenizer_file=args['spm_model_file'], \
                                                add_bos=True, add_eos=True)
@@ -25,6 +24,7 @@ def interactive_demo(args):
         subword_ids = spm_encoder(tf.constant([sent]))
         # subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
         # subwords = [s.decode() for s in subwords]
+        # ;STAD - probs + rev_labels
         ret = tf.argmax(model.predict(subword_ids)[0]).numpy().tolist()
         print(ret)
 
