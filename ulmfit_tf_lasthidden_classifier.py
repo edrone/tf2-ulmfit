@@ -3,45 +3,62 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_last_hidden_state
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, STLRSchedule, AWDCallback
-from ulmfit_text_classifier import read_tsv_and_numericalize
-from ulmfit_commons import check_unbounded_training
+from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, STLRSchedule
+from ulmfit_tf_text_classifier import read_tsv_and_numericalize
+from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
 from lm_tokenizers import LMTokenizerFactory
 
-def interactive_demo(args, label_map):
+def interactive_demo(args):
     raise NotImplementedError
     spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
                                                tokenizer_file=args['spm_model_file'], \
-                                               add_bos=True, add_eos=True) # bos and eos will need to be added manually
-    spm_args = {'spm_model_file': args['spm_model_file'],
-                'add_bos': False,
-                'add_eos': False,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spmproc = spm_encoder.spmproc
-    ulmfit_tagger, hub_object = ulmfit_sequence_tagger(model_type=args['model_type'],
-                                                       pretrained_encoder_weights=None,
-                                                       spm_model_args=spm_args,
-                                                       fixed_seq_len=args.get('fixed_seq_len'),
-                                                       num_classes=len(label_map))
-    ulmfit_tagger.summary()
-    ulmfit_tagger.load_weights(args['model_weights_cp'])
+                                               add_bos=True, add_eos=True)
+    label_map = read_labels(args['label_map'])
+    model, _ = build_lasthidden_classifier_model(args=args, num_labels=len(label_map),
+                                                 restore_encoder=False)
+    model.summary()
+    model.load_weights(args['model_weights_cp'])
     print("Done")
-    ulmfit_tagger.summary()
     readline.parse_and_bind('set editing-mode vi')
     while True:
-        sent = input("Write a sentence to tag: ")
-        # Our SPMNumericalizer already outputs a RaggedTensor, but in the line below we access
-        # the underlying object directly on purpose, so we have to convert it from regular to ragged tensor ourselves.
-        subword_ids = spmproc.tokenize(sent)
-        subword_ids = tf.RaggedTensor.from_tensor(tf.expand_dims(subword_ids, axis=0))
-        subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
-        subwords = [s.decode() for s in subwords]
-        ret = tf.argmax(ulmfit_tagger.predict(subword_ids)[0], axis=1).numpy().tolist()
-        for subword, category in zip(subwords, ret):
-            print("{:<15s}{:>4s}".format(subword, label_map[category]))
+        sent = input("Write a document to classify: ")
+        subword_ids = spm_encoder(tf.constant([sent]))
+        # subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
+        # subwords = [s.decode() for s in subwords]
+        ret = tf.argmax(model.predict(subword_ids)[0]).numpy().tolist()
+        print(ret)
+
+def build_lasthidden_classifier_model(*, args, num_labels, restore_encoder=False):
+    """
+    Build a simple document classifier.
+
+    The ULMFiT paper uses a concatenated vector of the last hidden state,
+    max pooling and average pooling for document classification. Here
+    we only use the last hidden state.
+
+    :param dict args:       Arguments dictionary (see the argparse fields)
+    :param int num_labels:  Number of labels (target classes)
+    :param bool restore_encoder: Whether or not the RNN encoder weights should be
+                                 restored from args['model_weights_cp'] path
+    :return: a Keras functional model with numericalized inputs and softmaxed outputs
+    """
+    spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
+                'lumped_sents_separator': '[SEP]'}
+    weights_path = None if restore_encoder is False else args['model_weights_cp']
+    ulmfit_lasthidden, hub_object = ulmfit_last_hidden_state(model_type=args['model_type'],
+                                                             pretrained_encoder_weights=weights_path,
+                                                             spm_model_args=spm_args,
+                                                             fixed_seq_len=args.get('fixed_seq_len'))
+    drop1 = tf.keras.layers.Dropout(0.4)(ulmfit_lasthidden.output)
+    fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
+    drop2 = tf.keras.layers.Dropout(0.1)(fc1)
+    fc_final = tf.keras.layers.Dense(num_labels, activation='softmax')(drop2)
+    plain_document_classifier_model = tf.keras.models.Model(inputs=ulmfit_lasthidden.input,
+                                                            outputs=fc_final)
+    return plain_document_classifier_model, hub_object
 
 def main(args):
+    # Step 1. Read data into memory
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
     x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     if args.get('test_tsv') is not None:
@@ -49,57 +66,37 @@ def main(args):
                                                                also_return_df=True)
     else:
         x_test = y_test = None
-    spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
-                'lumped_sents_separator': '[SEP]'}
-    ulmfit_classifier_lasthidden, hub_object = ulmfit_last_hidden_state(model_type=args['model_type'],
-                                                               pretrained_encoder_weights=args['model_weights_cp'],
-                                                               spm_model_args=spm_args,
-                                                               fixed_seq_len=args.get('fixed_seq_len'))
-    drop1 = tf.keras.layers.Dropout(0.4)(ulmfit_classifier_lasthidden.output)
-    fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
-    drop2 = tf.keras.layers.Dropout(0.1)(fc1)
-    fc_final = tf.keras.layers.Dense(len(label_map), activation='softmax')(drop2)
-    plain_document_classifier_model = tf.keras.models.Model(inputs=ulmfit_classifier_lasthidden.input,
-                                                      outputs=fc_final)
-    plain_document_classifier_model.summary()
+    validation_data = (x_test, y_test) if x_test is not None else None
+
+    # Step 2. Build the classifier model, set up the optimizer and callbacks
+    model, hub_object = build_lasthidden_classifier_model(args=args, num_labels=len(label_map),
+                                                          restore_encoder=True)
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
-    print(f"************************ TRAINING INFO ***************************\n" \
-          f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}\n" \
-          f"Batch size: {args['batch_size']}, Epochs: {args['num_epochs']}, \n" \
-          f"Steps per epoch: {x_train.shape[0] // args['batch_size']} \n" \
-          f"Total steps: {num_steps}\n" \
-          f"******************************************************************")
+    print_training_info(args=args, x_train=x_train, y_train=y_train)
     scheduler = STLRSchedule(args['lr'], num_steps)
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-    plain_document_classifier_model.compile(optimizer=optimizer_fn,
-                                            loss=loss_fn,
-                                            metrics=['sparse_categorical_accuracy'])
-    cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
-    final_dir = os.path.join(args['out_cp_path'], 'final')
-    for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
-    callbacks = []
-    if not args.get('awd_off'):
-        callbacks.append(AWDCallback(model_object=plain_document_classifier_model if hub_object is None else None,
-                                     hub_object=hub_object))
-    if args.get('tensorboard'):
-        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'))
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'classifier_model'),
-                                           monitor='val_sparse_categorical_accuracy',
-                                           save_best_only=True,
-                                           save_weights_only=True))
-    
-    validation_data = (x_test, y_test) if x_test is not None else None
-    #exit(0)
-    plain_document_classifier_model.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
-                                        validation_data=validation_data,
-                                        epochs=args['num_epochs'],
-                                        callbacks=callbacks)
-    plain_document_classifier_model.save_weights(os.path.join(final_dir, 'plain_classifier_final'))
+    callbacks = prepare_keras_callbacks(args=args, model=model, hub_object=hub_object,
+                                        monitor_metric = 'val_sparse_categorical_accuracy' \
+                                                         if validation_data is not None \
+                                                         else 'sparse_categorical_accuracy')
+    model.summary()
+    model.compile(optimizer=optimizer_fn,
+                  loss=loss_fn,
+                  metrics=['sparse_categorical_accuracy'])
+
+    # Step 3. Run the training
+    model.fit(x=x_train, y=y_train, validation_data=validation_data,
+              batch_size=args['batch_size'],
+              epochs=args['num_epochs'],
+              callbacks=callbacks)
+
+    # Step 4. Save weights
+    save_dir = os.path.join(args['out_cp_path'], 'final')
+    os.makedirs(save_dir, exist_ok=True)
+    model.save_weights(os.path.join(final_dir, 'lasthidden_classifier_model'))
 
 if __name__ == "__main__":
-    # TODO: the weights checkpoint quirk should be done away with, but to serialize anything custom into a SavedModel
-    # especially if that thing contains RaggedTensors is kind of nightmarish...
     argz = argparse.ArgumentParser()
     argz.add_argument("--train-tsv", required=False, help="Training input file (tsv format)")
     argz.add_argument("--test-tsv", required=False, help="Training test file (tsv format)")

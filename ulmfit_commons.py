@@ -1,5 +1,5 @@
 import subprocess
-import sys
+import os, sys
 
 def file_len(fname):
     """ Nothing beats wc -l """
@@ -52,3 +52,43 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
             sure = input("Are you sure you want to continue? (y/n) ")
         if sure in ['n', 'N']:
             sys.exit(1)
+
+def prepare_keras_callbacks(*, args, model, hub_object,
+                            monitor_metric='val_sparse_categorical_accuracy'):
+    """
+    Build a list of Keras callbacks according to command-line parameters parsed into `args`.
+
+    """
+    import tensorflow as tf
+    from modelling_scripts.ulmfit_tf2 import AWDCallback
+    callbacks = []
+    if not args.get('awd_off'):
+        callbacks.append(AWDCallback(model_object=model if hub_object is None else None,
+                                     hub_object=hub_object))
+    if args.get('save_best') is True:
+        best_dir = os.path.join(args['out_cp_path'], 'best_checkpoint')
+        os.makedirs(best_dir, exist_ok=True)
+        callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(best_dir, 'best'),
+                                            monitor=monitor_metric,
+                                            save_best_only=True,
+                                            save_weights_only=True))
+    if args.get('tensorboard'):
+        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'))
+    return callbacks
+
+def print_training_info(*, args, x_train, y_train):
+    """
+    Print training information to stdout
+
+    :param dict args:       Arguments dictionary (see the argparse fields in individual scripts)
+    :param x_train:         A tensor of training examples
+    :param y_train:         A tensor of training labels
+
+    """
+    num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
+    print(f"************************ TRAINING INFO ***************************\n" \
+          f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}\n" \
+          f"Batch size: {args['batch_size']}, Epochs: {args['num_epochs']}, \n" \
+          f"Steps per epoch: {x_train.shape[0] // args['batch_size']} \n" \
+          f"Total steps: {num_steps}\n" \
+          f"******************************************************************")
