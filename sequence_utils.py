@@ -3,10 +3,14 @@ import json
 import tensorflow as tf
 from awd_lstm_tensorflow2.ulmfit_tf2_heads import SPMNumericalizer
 
-def pretty_print_tagged_sequences(subword_pieces, labels):
+def pretty_print_tagged_sequences(subword_pieces, labels, intents, limit=5):
     for i in range(len(subword_pieces)):
         l = list(zip(subword_pieces[i], labels[i]))
         print(l)
+        if intents not in [None, []]:
+            print(f"---> Intent: {intents[i]}")
+        if i > limit:
+            break
 
 def mk_labels(ls_json):
     labels_set = set()
@@ -18,7 +22,7 @@ def mk_labels(ls_json):
     # index_label = {index:label for index,label in enumerate(sorted(labels_set))}
     return label_index
 
-def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
+def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json): # todo: return intents
     spm_layer = SPMNumericalizer(name="SPM_layer",
                                  spm_path=spm_args['spm_model_file'],
                                  add_bos=spm_args.get('add_bos') or False,
@@ -26,12 +30,10 @@ def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
                                  lumped_sents_separator="")
     spmproc = spm_layer.spmproc
     ls_json = json.load(open(label_studio_min_json, 'r', encoding='utf-8'))
-    # labels_map = predefined_labels or mk_labels(ls_json)
-    # print(labels_map)
 
     # tokenize with offsets
     nl_texts = [document['text'] for document in ls_json]
-    spans = [document['label'] for document in ls_json]
+    spans = [document.get('label') or [] for document in ls_json]
     print(f"First 10 texts:")
     print(nl_texts[0:10])
 
@@ -39,6 +41,7 @@ def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
     tokenized = []
     tokenized_pieces = []
     tokenized_labels = []
+    intents = []
     for doc_id in range(len(nl_texts)):
         # Tensorflow's tokenize_with_offsets is broken with SentencePiece
         #token_offsets = list(zip(begins[i].numpy().tolist(), ends[i].numpy().tolist()))
@@ -47,6 +50,8 @@ def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
         curr_pieces = []
         curr_entities = []
         i = 0
+        if spans[doc_id] == []:
+            entity_end=0
         for span in spans[doc_id]:
             j = entity_beg = span['start']
             entity_end = span['end']
@@ -70,13 +75,15 @@ def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
         tokenized.append(curr_tokens)
         tokenized_pieces.append(curr_pieces)
         tokenized_labels.append(curr_entities)
-    return tokenized, tokenized_pieces, tokenized_labels
+        if ls_json[doc_id].get('intent') is not None:
+            intents.append(ls_json[doc_id].get('intent'))
+    return tokenized, tokenized_pieces, tokenized_labels, intents
 
 def main(args):
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': False, 'add_eos': False}
     token_ids, token_pieces, token_labels = label_studio_to_tagged_subwords(spm_args=spm_args,
                                             label_studio_min_json=args['label_studio_min_json'])
-    pretty_print_tagged_sequences(token_pieces, token_labels)
+    pretty_print_tagged_sequences(token_pieces, token_labels, intents)
 
 
 if __name__ == "__main__":
