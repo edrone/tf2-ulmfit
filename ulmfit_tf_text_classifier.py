@@ -82,8 +82,8 @@ def main(args):
     ulmfit_classifier.compile(optimizer=optimizer_fn,
                               loss=loss_fn,
                               metrics=['sparse_categorical_accuracy'])
-    cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
-    final_dir = os.path.join(args['out_cp_path'], 'final')
+    cp_dir = os.path.join(args['out_path'], 'checkpoint')
+    final_dir = os.path.join(args['out_path'], 'final')
     for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
     callbacks = []
     if not args.get('awd_off'):
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=True, help="Path to a text file containing labels")
-    argz.add_argument("--out-cp-path", required=True, help="(Training only): Directory to save the checkpoints and the final model")
+    argz.add_argument("--out-path", required=True, help="(Training only): Directory to save the checkpoints and the final model")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     if argz.get('interactive') is True:        
         interactive_demo(argz)
     elif argz.get('train_tsv'):
-        if argz.get('out_cp_path') is None:
+        if argz.get('out_path') is None:
             raise ValueError("Please provide an output path where you will store the trained model")
         main(argz)
     elif argz.get('test_tsv'):

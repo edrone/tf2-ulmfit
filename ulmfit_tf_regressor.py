@@ -100,8 +100,8 @@ def main(args):
     ulmfit_regressor_model.compile(optimizer=optimizer_fn,
                                    loss=loss_fn,
                                    metrics=[loss_metric])
-    cp_dir = os.path.join(args['out_cp_path'], 'checkpoint')
-    final_dir = os.path.join(args['out_cp_path'], 'final')
+    cp_dir = os.path.join(args['out_path'], 'checkpoint')
+    final_dir = os.path.join(args['out_path'], 'final')
     for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
     callbacks = []
     if not args.get('awd_off'):
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     argz.add_argument("--loss-fn", default='mae', choices=['mae', 'mse'], help="Loss function for regression (MAE or MSE).")
     argz.add_argument("--normalize-labels", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--out-cp-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
+    argz.add_argument("--out-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):

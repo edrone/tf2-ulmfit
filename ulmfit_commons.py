@@ -67,7 +67,7 @@ def prepare_keras_callbacks(*, args, model, hub_object,
         callbacks.append(AWDCallback(model_object=model if hub_object is None else None,
                                      hub_object=hub_object))
     if args.get('save_best') is True:
-        best_dir = os.path.join(args['out_cp_path'], 'best_checkpoint')
+        best_dir = os.path.join(args['out_path'], 'best_checkpoint')
         os.makedirs(best_dir, exist_ok=True)
         callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(best_dir, 'best'),
                                             monitor=monitor_metric,
