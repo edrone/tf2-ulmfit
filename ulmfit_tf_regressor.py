@@ -6,9 +6,9 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_regressor
-from modelling_scripts.ulmfit_tf2 import apply_awd_eagerly, AWDCallback, STLRSchedule
+from modelling_scripts.ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
 from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import read_numericalize, check_unbounded_training
+from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info
 
 """
 Train an ULMFiT regressor model
@@ -52,23 +52,30 @@ def get_keras_regression_objects(loss_fn_name):
         raise ValueError(f"Unknown loss function name {loss_fn_name}")
 
 def evaluate(args):
-    x_data, labels, spm_args = read_numericalize(input_file=args['test_tsv'],
-                                                 spm_model_file=args['spm_model_file'],
-                                                 label_map=label_map,
-                                                 max_seq_len = args.get('max_seq_len'),
-                                                 x_col=args['data_column_name'],
-                                                 y_col=args['gold_column_name'])
-    if args.get('fixed_seq_len') is not None:
-        raise NotImplementedError("Not implemented yet")
-    else:
-        ulmfit_classifier, _ = ulmfit_document_classifier(model_type=args['model_type'],
-                                                          pretrained_encoder_weights=args['model_weights_cp'],
+    x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'],
+                                                        args=args,
+                                                        also_return_df=True)
+    spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
+                'lumped_sents_separator': '[SEP]'}
+    ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
+                                                          pretrained_encoder_weights=None,
                                                           spm_model_args=spm_args,
                                                           fixed_seq_len=args.get('fixed_seq_len'),
-                                                          num_classes=args['num_classes'])
-    ulmfit_classifier.summary()
-    print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
-    return ulmfit_classifier, x_data, labels
+                                                          with_batch_normalization=False)
+    ulmfit_regressor_model.load_weights(args['model_weights_cp'])
+    ulmfit_regressor_model.summary()
+    y_preds = ulmfit_regressor_model.predict(x_test, batch_size=args['batch_size'],
+                                             callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])
+    y_test = y_test.tolist()
+    y_preds = y_preds.tolist()
+    df2 = pd.DataFrame.from_dict({'nltext': test_df[args['data_column_name']].tolist(),
+                                  'gold': y_test,
+                                  'y_preds': y_preds})
+    if args['loss_fn'] == 'mae':
+        df2['error'] = (df2['y_preds'] - df['gold']).abs()
+    elif args['loss_fn'] == 'mse':
+        df2['error'] = (df2['y_preds'] - df['gold'])**2
+    print(f"Result metric ({args['loss_fn']}): {df2['error'].mean()}")
     
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
@@ -79,6 +86,7 @@ def main(args):
                                                             also_return_df=True)
     else:
         x_test = y_test = None
+    validation_data = (x_test, y_test) if x_test is not None else None
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
     ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
@@ -88,40 +96,26 @@ def main(args):
                                                     with_batch_normalization=False)
     ulmfit_regressor_model.summary()
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
-    print(f"************************ TRAINING INFO ***************************\n" \
-          f"Shapes - sequence inputs: {x_train.shape}, labels: {y_train.shape}\n" \
-          f"Batch size: {args['batch_size']}, Epochs: {args['num_epochs']}, \n" \
-          f"Steps per epoch: {x_train.shape[0] // args['batch_size']} \n" \
-          f"Total steps: {num_steps}\n" \
-          f"******************************************************************")
+    print_training_info(args=args, x_train=x_train, y_train=y_train)
     scheduler = STLRSchedule(args['lr'], num_steps)
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn, loss_metric = get_keras_regression_objects(args['loss_fn'])
+    monitor_metric = 'mean_absolute_error' if args['loss_fn'] == 'mae' else 'mean_squared_error'
+    callbacks = prepare_keras_callbacks(args=args, model=ulmfit_regressor_model, hub_object=hub_object,
+                                        monitor_metric=f'val_{monitor_metric}' if validation_data is not None \
+                                        else monitor_metric)
     ulmfit_regressor_model.compile(optimizer=optimizer_fn,
                                    loss=loss_fn,
                                    metrics=[loss_metric])
-    cp_dir = os.path.join(args['out_path'], 'checkpoint')
-    final_dir = os.path.join(args['out_path'], 'final')
-    for d in [cp_dir, final_dir]: os.makedirs(d, exist_ok=True)
-    callbacks = []
-    if not args.get('awd_off'):
-        callbacks.append(AWDCallback(model_object=ulmfit_regressor_model if hub_object is None else None,
-                                     hub_object=hub_object))
-    if args.get('tensorboard'):
-        callbacks.append(tf.keras.callbacks.TensorBoard(log_dir='tboard_logs', update_freq='batch'))
-    # fixme: validation metric below
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(os.path.join(cp_dir, 'regressor_model'),
-                                           monitor='val_mean_absolute_error',
-                                           save_best_only=True,
-                                           save_weights_only=True))
     
-    validation_data = (x_test, y_test) if x_test is not None else None
-    ulmfit_regressor_model.fit(x=x_train, y=y_train, batch_size=args['batch_size'],
-                               validation_data=validation_data,
+    ulmfit_regressor_model.fit(x=x_train, y=y_train, validation_data=validation_data,
+                               batch_size=args['batch_size'],
                                epochs=args['num_epochs'],
                                callbacks=callbacks)
+
+    save_dir = os.path.join(args['out_path'], 'final')
+    os.makedirs(save_dird, exist_ok=True)
     ulmfit_regressor_model.save_weights(os.path.join(final_dir, 'regressor_final'))
-    return ulmfit_classifier, x_train, y_train, loss_fn, optimizer
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
