@@ -2,13 +2,15 @@ import os, sys, argparse, readline
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
+from sklearn.metrics import classification_report
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_last_hidden_state
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, STLRSchedule
 from ulmfit_tf_text_classifier import read_tsv_and_numericalize
 from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
 from lm_tokenizers import LMTokenizerFactory
 
-def interactive_demo(args):
+def _restore_classifier_model_and_spm(args):
+    """ Restores the document classification model (last hidden state) from file """
     spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
                                                tokenizer_file=args['spm_model_file'], \
                                                add_bos=True, add_eos=True)
@@ -17,16 +19,35 @@ def interactive_demo(args):
                                                  restore_encoder=False)
     model.summary()
     model.load_weights(args['model_weights_cp'])
-    print("Done")
+    print("Model restored")
+    return model, spm_encoder
+
+def interactive_demo(args):
+    """ Run interactive demo for the simple document classifier """
+    model, spm_encoder = _restore_classifier_model_and_spm(args)
     readline.parse_and_bind('set editing-mode vi')
     while True:
-        sent = input("Write a document to classify: ")
+        sent = input("Paste a document to classify: ")
         subword_ids = spm_encoder(tf.constant([sent]))
         # subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
         # subwords = [s.decode() for s in subwords]
         # ;STAD - probs + rev_labels
-        ret = tf.argmax(model.predict(subword_ids)[0]).numpy().tolist()
-        print(ret)
+        y_probs = model.predict(subword_ids)[0]
+        ret = tf.argmax(y_probs).numpy().tolist()
+        y_probs_with_labels = list(zip(label_map.values(), y_probs.tolist()))
+        print(y_probs_with_labels)
+        print(f"Classification result: P({label_map[ret]}) = {y_probs[ret]}")
+
+def evaluate(args):
+    model, spm_encoder = _restore_classifier_model_and_spm(args)
+    x_test, y_test, label_map, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+                                         also_return_df=True)
+
+    y_probs = model(x_test)
+    y_preds = tf.argmax(y_probs).numpy().
+    classification_report(y_test, y_preds, target_names=list(label_map.values())))
+    if args.get('save_path') is not None:
+        pass
 
 def build_lasthidden_classifier_model(*, args, num_labels, restore_encoder=False):
     """
@@ -92,7 +113,7 @@ def main(args):
               callbacks=callbacks)
 
     # Step 4. Save weights
-    save_dir = os.path.join(args['out_cp_path'], 'final')
+    save_dir = os.path.join(args['out_path'], 'final')
     os.makedirs(save_dir, exist_ok=True)
     model.save_weights(os.path.join(final_dir, 'lasthidden_classifier_model'))
 
@@ -117,7 +138,8 @@ if __name__ == "__main__":
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=True, help="Path to a text file containing labels.")
-    argz.add_argument("--out-cp-path", required=False, help="(Training only): Checkpoint name to save every 10 steps")
+    argz.add_argument("--out-path", required=False, help="Training: Checkpoint name to save every 10 steps. "\
+                                                         "Evaluation: path to a TSV file with results")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
@@ -126,7 +148,7 @@ if __name__ == "__main__":
     if argz.get('interactive') is True:
         interactive_demo(argz)
     elif argz.get('train_tsv'):
-        if argz.get('out_cp_path') is None:
+        if argz.get('out_path') is None:
             raise ValueError("Please provide an output path where you will store the trained model")
         main(argz)
     elif argz.get('test_tsv'):
