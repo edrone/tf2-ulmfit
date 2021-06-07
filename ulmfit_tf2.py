@@ -1,6 +1,7 @@
 import math
 import tensorflow as tf
 import tensorflow_text as text
+from tqdm import tqdm, trange
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 from tensorflow.keras.layers import LSTMCell
@@ -821,3 +822,14 @@ class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         p = tf.cond(tf.less(step, self.cut), warmup, cooldown)
         current_lr = self.lr_max * ( (1 + (p*(self.ratio - 1))) / self.ratio)
         return current_lr
+
+class PredictionProgressCallback(tf.keras.callbacks.Callback):
+    """
+    Shows a progress bar when calling model.predict()
+    """
+    def __init__(self, num_steps):
+        self.num_steps = num_steps
+        self.progress_bar = trange(num_steps)
+
+    def on_predict_batch_begin(self, batch, logs=None):
+        self.progress_bar.update()
