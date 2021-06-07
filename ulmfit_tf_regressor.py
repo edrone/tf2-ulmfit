@@ -2,13 +2,14 @@ import os, sys, argparse, readline, math
 import json
 import nltk
 import pandas as pd
+import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_regressor
 from modelling_scripts.ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
 from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info
+from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
 
 """
 Train an ULMFiT regressor model
@@ -23,7 +24,7 @@ def interactive_demo(args):
     raise NotImplementedError
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
-    x_data, y_data, df = read_numericalize(input_file=args['train_tsv'],
+    x_data, y_data, df = read_numericalize(input_file=tsv_file,
                                            spm_model_file=args['spm_model_file'],
                                            max_seq_len = args.get('max_seq_len'),
                                            x_col=args['data_column_name'],
@@ -61,29 +62,32 @@ def evaluate(args):
                                                           pretrained_encoder_weights=None,
                                                           spm_model_args=spm_args,
                                                           fixed_seq_len=args.get('fixed_seq_len'),
-                                                          with_batch_normalization=False)
+                                                          with_batch_normalization=args.get('with_batch_normalization') or False)
     ulmfit_regressor_model.load_weights(args['model_weights_cp'])
     ulmfit_regressor_model.summary()
     y_preds = ulmfit_regressor_model.predict(x_test, batch_size=args['batch_size'],
                                              callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])
-    y_test = y_test.tolist()
-    y_preds = y_preds.tolist()
+    y_test = y_test.numpy().tolist()
+    y_preds = np.squeeze(y_preds).tolist()
     df2 = pd.DataFrame.from_dict({'nltext': test_df[args['data_column_name']].tolist(),
                                   'gold': y_test,
                                   'y_preds': y_preds})
     if args['loss_fn'] == 'mae':
-        df2['error'] = (df2['y_preds'] - df['gold']).abs()
+        df2['error'] = (df2['y_preds'] - df2['gold']).abs()
     elif args['loss_fn'] == 'mse':
-        df2['error'] = (df2['y_preds'] - df['gold'])**2
+        df2['error'] = (df2['y_preds'] - df2['gold'])**2
     print(f"Result metric ({args['loss_fn']}): {df2['error'].mean()}")
-    
+    if args.get('out_path') is not None:
+        df2.to_csv(args['out_path'], sep='\t', index=None)
+ 
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
     x_train, y_train = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     print(y_train)
     if args.get('test_tsv') is not None:
-        x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+        x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args,
                                                             also_return_df=True)
+        print(y_test)
     else:
         x_test = y_test = None
     validation_data = (x_test, y_test) if x_test is not None else None
@@ -93,7 +97,7 @@ def main(args):
                                                     pretrained_encoder_weights=args['model_weights_cp'],
                                                     spm_model_args=spm_args,
                                                     fixed_seq_len=args.get('fixed_seq_len'),
-                                                    with_batch_normalization=False)
+                                                    with_batch_normalization=args.get('with_batch_normalization') or False)
     ulmfit_regressor_model.summary()
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
@@ -138,9 +142,12 @@ if __name__ == "__main__":
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--loss-fn", default='mae', choices=['mae', 'mse'], help="Loss function for regression (MAE or MSE).")
     argz.add_argument("--normalize-labels", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
+    argz.add_argument("--with-batch-normalization", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--out-path", default="out", help="(Training only): Directory to save the checkpoints and the final model")
+    argz.add_argument("--out-path", required=False, help="At training: directory to save the checkpoints and the final model. " \
+                                                         "At evaluation: path where the TSV file with results will be saved.")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
+    argz.add_argument('--save-best', action='store_true', help="Save best checkpoint")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
