@@ -38,7 +38,11 @@ def interactive_demo(args):
         print(f"Classification result: P({label_map[ret]}) = {y_probs[ret]}")
 
 def evaluate(args):
-    """ Evaluate a custom tsv file """
+    """ Evaluate a custom tsv file and print the classification report
+
+        If args['out_path'] is provided, this function will also save a TSV
+        file with classification results.
+    """
     model, spm_encoder = _restore_classifier_model_and_spm(args)
     x_test, y_test, label_map, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'],
                                                                    args=args,
@@ -95,7 +99,7 @@ def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
     x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     if args.get('test_tsv') is not None:
-        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args,
                                                                also_return_df=True)
     else:
         x_test = y_test = None
@@ -128,7 +132,7 @@ def main(args):
     # Step 4. Save weights
     save_dir = os.path.join(args['out_path'], 'final')
     os.makedirs(save_dir, exist_ok=True)
-    model.save_weights(os.path.join(final_dir, 'lasthidden_classifier_model'))
+    model.save_weights(os.path.join(save_dir, 'lasthidden_classifier_model'))
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
@@ -151,7 +155,8 @@ if __name__ == "__main__":
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=True, help="Path to a text file containing labels.")
-    argz.add_argument("--out-path", required=False, help="Training: Checkpoint name to save every 10 steps. "\
+    argz.add_argument("--save-best", action='store_true', help="Run evaluation after each epoch and save the best seen checkpoint.")
+    argz.add_argument("--out-path", required=False, help="Training: Path where the trained model (and best checkpoints) will be saved. "\
                                                          "Evaluation: path to a TSV file with results")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):

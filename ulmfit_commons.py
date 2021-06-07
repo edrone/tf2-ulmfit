@@ -1,5 +1,5 @@
 import subprocess
-import os, sys
+import os, sys, re
 
 def file_len(fname):
     """ Nothing beats wc -l """
@@ -26,7 +26,8 @@ def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map=None, m
         df[y_col].replace({v:k for k,v in label_map.items()}, inplace=True)
     if sentence_tokenize is True:
         df[x_col] = df[x_col].str.replace(' . ', '[SEP]', regex=False)
-        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish'))\
+        df[x_col] = df[x_col].map(lambda t: nltk.sent_tokenize(t, language='polish')) \
+                             .map(lambda t: [re.sub(r"(\w)([,!\?])", "\\1 \\2 ", sent) for sent in t]) \
                              .map(lambda t: "[SEP]".join(t))
     spmproc = spm.SentencePieceProcessor(spm_model_file)
     spmproc.set_encode_extra_options("bos:eos")

@@ -10,6 +10,15 @@ from modelling_scripts.ulmfit_tf2 import apply_awd_eagerly, AWDCallback, STLRSch
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_numericalize, check_unbounded_training
 
+"""
+Train an ULMFiT regressor model
+
+A regressor model outputs a real-number value whereas a classifier model outputs class probabilities.
+
+If `--normalize-labels` is passed, the gold values are rescaled to a range between 0 and 1
+
+"""
+
 def interactive_demo(args):
     raise NotImplementedError
 
@@ -115,8 +124,6 @@ def main(args):
     return ulmfit_classifier, x_train, y_train, loss_fn, optimizer
 
 if __name__ == "__main__":
-    # TODO: the weights checkpoint quirk should be done away with, but to serialize anything custom into a SavedModel
-    # especially if that thing contains RaggedTensors is kind of nightmarish...
     argz = argparse.ArgumentParser()
     argz.add_argument("--train-tsv", required=False, help="Training input file (tsv format)")
     argz.add_argument("--test-tsv", required=False, help="Training test file (tsv format)")
