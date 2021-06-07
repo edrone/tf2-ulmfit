@@ -2,9 +2,11 @@ import os, sys, argparse, readline
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
+import numpy as np
+import pandas as pd
 from sklearn.metrics import classification_report
 from modelling_scripts.ulmfit_tf2_heads import ulmfit_last_hidden_state
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, STLRSchedule
+from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, STLRSchedule, PredictionProgressCallback
 from ulmfit_tf_text_classifier import read_tsv_and_numericalize
 from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
 from lm_tokenizers import LMTokenizerFactory
@@ -29,9 +31,6 @@ def interactive_demo(args):
     while True:
         sent = input("Paste a document to classify: ")
         subword_ids = spm_encoder(tf.constant([sent]))
-        # subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
-        # subwords = [s.decode() for s in subwords]
-        # ;STAD - probs + rev_labels
         y_probs = model.predict(subword_ids)[0]
         ret = tf.argmax(y_probs).numpy().tolist()
         y_probs_with_labels = list(zip(label_map.values(), y_probs.tolist()))
@@ -39,19 +38,32 @@ def interactive_demo(args):
         print(f"Classification result: P({label_map[ret]}) = {y_probs[ret]}")
 
 def evaluate(args):
+    """ Evaluate a custom tsv file """
     model, spm_encoder = _restore_classifier_model_and_spm(args)
-    x_test, y_test, label_map, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
-                                         also_return_df=True)
+    x_test, y_test, label_map, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'],
+                                                                   args=args,
+                                                                   also_return_df=True)
+    y_probs_all = model.predict(x_test, batch_size=args['batch_size'],
+                                callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])
+    y_preds = tf.argmax(y_probs_all, axis=1).numpy()
+    y_probs = np.take_along_axis(y_probs_all, y_preds[:, None], axis=1).squeeze(axis=1)
+    y_preds = y_preds.tolist()
+    y_preds_labels = [label_map[l] for l in y_preds]
 
-    y_probs = model(x_test)
-    y_preds = tf.argmax(y_probs).numpy().
-    classification_report(y_test, y_preds, target_names=list(label_map.values())))
-    if args.get('save_path') is not None:
-        pass
+    print("\u001b[34m" + classification_report(y_test, y_preds, target_names=list(label_map.values())) + "\u001b[0m")
+    if args.get('out_path') is not None:
+        df2 = pd.DataFrame.from_dict({'nltext': test_df[args['data_column_name']].tolist(),
+                                      'y_probs_all': y_probs_all.tolist(),
+                                      'y_probs': y_probs.tolist(),
+                                      'gold': [label_map[l] for l in test_df[args['gold_column_name']].tolist()],
+                                      'y_preds': y_preds_labels
+                                     })
+        df2['result'] = np.where(df2['gold'] == df2['y_preds'], 'SUCCESS', 'FAIL')
+        df2.to_csv(args['out_path'], sep='\t', index=None)
 
 def build_lasthidden_classifier_model(*, args, num_labels, restore_encoder=False):
     """
-    Build a simple document classifier.
+    Build a primitive document classifier.
 
     The ULMFiT paper uses a concatenated vector of the last hidden state,
     max pooling and average pooling for document classification. Here
@@ -88,6 +100,7 @@ def main(args):
     else:
         x_test = y_test = None
     validation_data = (x_test, y_test) if x_test is not None else None
+    print(f"Labels: {label_map}")
 
     # Step 2. Build the classifier model, set up the optimizer and callbacks
     model, hub_object = build_lasthidden_classifier_model(args=args, num_labels=len(label_map),

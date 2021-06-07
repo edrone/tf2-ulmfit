@@ -15,7 +15,7 @@ def interactive_demo(args, label_map):
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     label_map = read_labels(args['label_map'])
-    x_data, y_data, df = read_numericalize(input_file=args['train_tsv'],
+    x_data, y_data, df = read_numericalize(input_file=tsv_file,
                                            spm_model_file=args['spm_model_file'],
                                            label_map=label_map,
                                            max_seq_len = args.get('max_seq_len'),
@@ -23,6 +23,7 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
                                            y_col=args['gold_column_name'],
                                            sentence_tokenize=True,
                                            cut_off_final_token=False)
+    print(y_data)
     if args.get('fixed_seq_len') is not None:
         x_data = tf.constant(x_data, dtype=tf.int32)
     else:
