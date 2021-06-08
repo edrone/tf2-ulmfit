@@ -36,71 +36,41 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         il = tf.keras.layers.Input(shape=(None,), ragged=True, name="numericalized_input", dtype=tf.int32)
         #il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
         # kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
-        kl_restored = hub.KerasLayer(restored_hub.encoder_num, trainable=True)(il)
+        # kl_restored = hub.KerasLayer(restored_hub.encoder_num, trainable=True)(il)
+        kl_restored = HubRaggedWrapper(hub_layer=hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True),
+                                       name="hub_ulmfit_encoder_ragged")
+        kl_tensor = kl_restored(il)
         if return_lm_head:
             if not hasattr(restored_hub, 'lm_head_biases'):
                 raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
-            rt = tf.RaggedTensor.from_row_splits(kl_restored[0], kl_restored[1])
+            # rt = tf.RaggedTensor.from_row_splits(kl_restored[0], kl_restored[1])
             reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
-            lm_head_ragged = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))(rt)
-            kl = tf.keras.models.Model(inputs=il, outputs=lm_head_ragged)
-            kl.layers[-1].set_weights([restored_hub.lm_head_biases.value()])
+            lm_head_ragged = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))
+            lm_head_ragged.set_weights([restored_hub.lm_head_biases.value()]) # untested
+            lm_head_ragged = lm_head_ragged(kl_tensor)
+            ret_tensor = lm_head_ragged
+            # kl = tf.keras.models.Model(inputs=il, outputs=lm_head_ragged)
+            # kl.layers[-1].set_weights()
         else:
-            kl = kl_restored
-        # model = tf.keras.models.Model(inputs=il, outputs=rec_ragged_tensor)
+            ret_tensor = kl_tensor
     else:
         il = tf.keras.layers.Input(shape=(fixed_seq_len,), name="numericalized_input", dtype=tf.int32)
-        kl_restored = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
+        kl_tensor = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
         if return_lm_head:
             if not hasattr(restored_hub, 'lm_head_biases'):
                 raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
             reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
-            lm_head = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))(kl_restored)
-            kl = tf.keras.models.Model(inputs=il, outputs=lm_head)
-            kl.layers[-1].set_weights([restored_hub.lm_head_biases.value()])
+            lm_head = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))
+            lm_head.set_weights([restored_hub.lm_head_biases.value()]) # untested
+            lm_head = lm_head(kl_tensor)
+            ret_tensor = lm_head
         else:
-            kl = kl_restored
-    return il, kl, restored_hub
-
-def ulmfit_sequence_tagger_head(*, enc_num, model_type='from_cp', num_classes=3, fixed_seq_len=None, **kwargs):
-    """ Convenience method to put a sequence-tagging head on top of the ULMFiT encoder.
-    
-        `enc_num`       - the ULMFiT encoder (can be None if using a SavedModel)
-        `model_type`    - 'from_cp' if encoder is built from Python code or `from_hub` if it's restored from a SavedModel
-        `num_classes`   - how many classes there are
-        `fixed_seq_len` - (for SavedModel only) Fixed sequence length to which all training examples will be padded
-                                                if necessary. `None` means the SavedModel will use RaggedTensors and
-                                                variable sequence length. You must set this parameter exactly in the
-                                                same way as you did when exporting the encoder.
-        `kwargs`        - (for SavedModel only) contains two keras objects:
-                          'input_layer' - an instance of tf.keras.layers.Input which can accept ragged
-                                          or fixed-length inputs, depending on how the encoder was exported.
-                          'keras_layer' - the encoder output either as a fixed-sequence length batch, or
-                                          an array of [flat_values, row_splits] restored back into a RaggedTensor.
-    """
-    if model_type == 'from_hub':
-        print(f"Adding sequence tagging head with n_classes={num_classes} (TF Hub)")
-        if fixed_seq_len is None:
-            il = kwargs['input_layer']
-            kl = kwargs['keras_layer']
-            ragged_restored = tf.RaggedTensor.from_row_splits(kl[0], kl[1])
-            tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes))(ragged_restored)
-            tagger_model = tf.keras.models.Model(inputs=il, outputs=tagger_head)
-        else:
-            il = kwargs['input_layer']
-            kl = kwargs['keras_layer']
-            tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes))(kl)
-            tagger_model = tf.keras.models.Model(inputs=il, outputs=tagger_head)
-    elif model_type == 'from_cp':
-        print(f"Adding sequence tagging head with n_classes={num_classes}")
-        tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(enc_num.output)
-        tagger_model = tf.keras.models.Model(inputs=enc_num.inputs, outputs=tagger_head)
-    else:
-        raise ValueError(f"Unknown model source {model_type}")
-    return tagger_model
+            ret_tensor = kl_tensor
+    model = tf.keras.models.Model(inputs=il, outputs=ret_tensor)
+    return model, restored_hub
 
 ################################### end to end methods ###############################
-def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None, num_classes=3):
+def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None, num_classes):
 
     ######## VERSION 1: ULMFiT sequence tagger model built from Python code - pass the path to a weights directory
     if model_type == 'from_cp':
@@ -108,26 +78,20 @@ def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_
                                                spm_model_args=spm_model_args,
                                                fixed_seq_len=fixed_seq_len,
                                                also_return_spm_encoder=False)
-        hub_object = il = kl = None
+        hub_object = None
 
     ######## VERSION 2: ULMFiT sequence tagged built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
     elif model_type == 'from_hub':
-        il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
-                                                     spm_model_args=None,
-                                                     fixed_seq_len=fixed_seq_len,
-                                                     also_return_spm_encoder=False)
-        ulmfit_rnn_encoder = None
+        ulmfit_rnn_encoder, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
+                                                                spm_model_args=None,
+                                                                fixed_seq_len=fixed_seq_len,
+                                                                also_return_spm_encoder=False)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
-    ulmfit_tagger = ulmfit_sequence_tagger_head(enc_num=ulmfit_rnn_encoder,
-                                                model_type=model_type,
-                                                num_classes=num_classes,
-                                                fixed_seq_len=fixed_seq_len,
-                                                input_layer=il,
-                                                keras_layer=kl)
-    if ulmfit_rnn_encoder is not None:
-        ulmfit_rnn_encoder.summary()
-    return ulmfit_tagger, hub_object
+    print(f"Adding sequence tagging head with n_classes={num_classes}")
+    tagger_head = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(ulmfit_rnn_encoder.output)
+    tagger_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=tagger_head)
+    return tagger_model, hub_object
 
 def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None):
 
@@ -137,34 +101,28 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
                                                spm_model_args=spm_model_args,
                                                fixed_seq_len=fixed_seq_len,
                                                also_return_spm_encoder=False)
-        if fixed_seq_len is None:
-            flat_vals = ulmfit_rnn_encoder.output.flat_values
-            row_limits = tf.math.subtract(ulmfit_rnn_encoder.output.row_limits(), 1, name="select_last_ragged_idx")
-            last_hidden_state = tf.gather(flat_vals, row_limits, name="last_hidden_state_ragged")
-        else:
-            last_hidden_state = ulmfit_rnn_encoder.output[:, -1, :]
-        last_hidden_state_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=last_hidden_state)
         hub_object = None
 
     ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
     elif model_type == 'from_hub':
-        il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
-                                                     spm_model_args=None,
-                                                     fixed_seq_len=fixed_seq_len,
-                                                     also_return_spm_encoder=False)
-        if fixed_seq_len is None:
-            row_limits = kl[1][1:] - 1 # equivalent to row_splits - get the last index in the ragged dimension
-            last_hidden_state = tf.gather(kl[0], row_limits, name="last_hidden_state_ragged")
-        else:
-            last_hidden_state = kl.output[:, -1, :]
-        last_hidden_state_model = tf.keras.models.Model(inputs=il, outputs=last_hidden_state)
+        ulmfit_rnn_encoder, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
+                                                                spm_model_args=None,
+                                                                fixed_seq_len=fixed_seq_len,
+                                                                also_return_spm_encoder=False)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
+    if fixed_seq_len is None:
+        flat_vals = ulmfit_rnn_encoder.output.flat_values
+        row_limits = tf.math.subtract(ulmfit_rnn_encoder.output.row_limits(), 1, name="select_last_ragged_idx")
+        last_hidden_state = tf.gather(flat_vals, row_limits, name="last_hidden_state_ragged")
+    else:
+        last_hidden_state = ulmfit_rnn_encoder.output[:, -1, :]
+    last_hidden_state_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=last_hidden_state)
     return last_hidden_state_model, hub_object
 
 def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes,
                                spm_model_args=None, fixed_seq_len=None,
-                               with_batch_normalization=True, activation='softmax'):
+                               with_batch_normalization=False, activation='softmax'):
     """
     Document classification head as per the ULMFiT paper:
        - AvgPool + MaxPool + Last hidden state
@@ -177,24 +135,22 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
                                                spm_model_args=spm_model_args,
                                                fixed_seq_len=fixed_seq_len,
                                                also_return_spm_encoder=False)
-        if fixed_seq_len is None:
-            rpooler = RaggedConcatPooler(name="RaggedConcatPooler")(ulmfit_rnn_encoder.output)
-        else:
-            rpooler = ConcatPooler(name="ConcatPooler")(ulmfit_rnn_encoder.output)
         hub_object=None
 
     ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
     elif model_type == 'from_hub':
-        il, kl, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
-                                                     spm_model_args=None,
-                                                     fixed_seq_len=fixed_seq_len,
-                                                     also_return_spm_encoder=False)
-        if fixed_seq_len is None:
-            rpooler = RaggedConcatPooler(inputs_are_flattened=True, name="RaggedConcatPooler")(kl)
-        else:
-            rpooler = ConcatPooler(name="ConcatPooler")(kl)
+        ulmfit_rnn_encoder, hub_object = ulmfit_rnn_encoder_hub(pretrained_weights=pretrained_encoder_weights,
+                                                                spm_model_args=None,
+                                                                fixed_seq_len=fixed_seq_len,
+                                                                also_return_spm_encoder=False)
     else:
         raise ValueError(f"Unknown model type {args['model_type']}")
+
+    if fixed_seq_len is None:
+        rpooler = RaggedConcatPooler(name="RaggedConcatPooler")(ulmfit_rnn_encoder.output)
+    else:
+        rpooler = ConcatPooler(name="ConcatPooler")(ulmfit_rnn_encoder.output)
+
     if with_batch_normalization is True:
         bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(rpooler)
         drop1 = tf.keras.layers.Dropout(0.4)(bnorm1)
@@ -207,17 +163,12 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     else:
         drop2 = tf.keras.layers.Dropout(0.1)(fc1)
     fc_final = tf.keras.layers.Dense(num_classes, activation=activation)(drop2)
-    if model_type == 'from_cp':
-        document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.input, outputs=fc_final)
-    elif model_type == 'from_hub':
-        document_classifier_model = tf.keras.models.Model(inputs=il, outputs=fc_final)
-    else:
-        raise ValueError(f"Unknown model type {args['model_type']}")
+    document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=fc_final)
     return document_classifier_model, hub_object
 
 def ulmfit_regressor(*, model_type, pretrained_encoder_weights,
                      spm_model_args=None, fixed_seq_len=None,
-                     with_batch_normalization=True):
+                     with_batch_normalization=False):
     """
     Regression head which outputs a single numerical value. The architecture is similar to
     the document classification head and differs only in the last layer (a single neuron

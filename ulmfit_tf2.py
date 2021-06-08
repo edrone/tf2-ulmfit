@@ -152,14 +152,12 @@ class ExportableULMFiT(tf.keras.Model):
     This class encapsulates a TF2 SavedModel serializable version of ULMFiT with a couple of useful
     signatures for flexibility.
 
-    !!!!!!    Do not forget to call tf.keras.backend.set_learning_phase(0) before saving !!!!!!!
-
     Serialization procedure:
 
     spm_args = {'spm_model_file': '/tmp/plwiki100-sp35k.model', 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
     lm_num, enc_num, outmask_num, spm_encoder_model = tf2_ulmfit_encoder(fixed_seq_len=200, spm_args=spm_args)
-    tf.keras.backend.set_learning_phase(0) # very important!!! do not skip!
+    tf.keras.backend.set_learning_phase(0)
     exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model)
     convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder,
                             'string_encoder': exportable.string_encoder,
@@ -273,8 +271,6 @@ class ExportableULMFiT(tf.keras.Model):
     #    """
     #    self.spm_encoder_model.layers[1].lumped_sents_separator.assign(sep)
 
-
-
 class ExportableULMFiTRagged(tf.keras.Model):
     """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
     def __init__(self, encoder_num, outmask_num, spm_encoder_model, lm_head_biases=None):
@@ -288,14 +284,14 @@ class ExportableULMFiTRagged(tf.keras.Model):
     #     rag_num = self.string_numericalizer(x)['numericalized']
     #     return self.numericalized_encoder(rag_num)
 
-    # I have no clue how to wrap this around a hub.KerasLayer - please help!
-    #@tf.function(input_signature=[tf.RaggedTensorSpec([None, None], dtype=tf.int32)])
-    @tf.function(input_signature=[[tf.TensorSpec([None,], dtype=tf.int32),
-                                   tf.TensorSpec([None,], dtype=tf.int64)]])
-    def numericalized_encoder(self, x):
-        flat_values=x[0]
-        row_splits=x[1]
-        ret = self.encoder_num(tf.RaggedTensor.from_row_splits(flat_values, row_splits))
+    # Calling this signature from a hub.KerasLayer wrapper gives errors - since TF 2.4.1
+    # tf.keras.layers.Input produces a KerasTensor, which is not compatible with tf.Tensor.
+    # I found the only way to pass named parameters `flatvals` and `rowspl` is to
+    # wrap hub.KerasLayer around HubRaggedWrapper. Yes, that's a wrapper around a wrapper...
+    @tf.function(input_signature=[tf.TensorSpec([None,], dtype=tf.int32),
+                                  tf.TensorSpec([None,], dtype=tf.int64)])
+    def numericalized_encoder(self, flatvals, rowspl):
+        ret = self.encoder_num(tf.RaggedTensor.from_row_splits(flatvals, rowspl))
         return {'output_flat': ret[0],
                 'output_rows': ret[1]
         }
@@ -322,7 +318,6 @@ class ExportableULMFiTRagged(tf.keras.Model):
 
         w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
         rnn3_w[1].assign(w3_mask * rnn3_w[2])
- 
 
 @tf.keras.utils.register_keras_serializable()
 class SPMNumericalizer(tf.keras.layers.Layer):
@@ -415,6 +410,20 @@ class SPMNumericalizer(tf.keras.layers.Layer):
     @classmethod
     def from_config(cls, config):
       return cls(**config)
+
+# The class below is a workaround for a bug in TF which doesn't allow you to call
+# obj.signatures["serving_default"](**tensors_in) on ragged tensors
+# It turns out we can call the concrete function directly via the `resolved_object` attribute
+# and pass the **tensors_in kwargs there directly.
+class HubRaggedWrapper(tf.keras.layers.Layer):
+    def __init__(self, *, hub_layer, **kwargs):
+        super(HubRaggedWrapper, self).__init__(**kwargs)
+        self.encoder = hub_layer
+    def call(self, ragged_inputs): # `flatvals` and `rowspl` are baked into the signature in the serialized model
+        ret = self.encoder.resolved_object(flatvals=ragged_inputs.flat_values,
+                                           rowspl=ragged_inputs.row_splits)
+        ret = tf.RaggedTensor.from_row_splits(ret['output_flat'], ret['output_rows'])
+        return ret
 
 class RaggedSparseCategoricalCrossEntropy(tf.keras.losses.SparseCategoricalCrossentropy):
     def __init__(self, from_logits=False, reduction='auto'):
@@ -698,8 +707,8 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
 
 @tf.keras.utils.register_keras_serializable()
 class ConcatPooler(tf.keras.layers.Layer):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.trainable = False
         self._supports_ragged_inputs = False # for compatibility with TF 2.2
     
