@@ -1,15 +1,19 @@
-import sys, argparse, readline
+import sys, os, argparse, readline
 import json
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_text
-from ptools.lipytools.little_methods import r_jsonl
 from modelling_scripts.ulmfit_tf2_heads import *
 from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import check_unbounded_training
 
 DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
+
+def r_jsonl(file_path):
+    if not os.path.isfile(file_path): return None
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return [json.loads(line) for line in file]
 
 def tokenize_and_align_labels(spmproc, ddpl_iob, max_seq_len):
     """

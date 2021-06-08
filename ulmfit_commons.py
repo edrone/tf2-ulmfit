@@ -37,6 +37,7 @@ def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map=None, m
     if max_seq_len is not None:
         x_data = [d[:max_seq_len] for d in x_data]
     if fixed_seq_len is not None:
+        x_data = [d[:fixed_seq_len] for d in x_data]
         x_data = [d + [1]*(fixed_seq_len - len(d)) for d in x_data]
     labels = df[y_col].tolist()
     return x_data, labels, df
@@ -92,4 +93,5 @@ def print_training_info(*, args, x_train, y_train):
           f"Batch size: {args['batch_size']}, Epochs: {args['num_epochs']}, \n" \
           f"Steps per epoch: {x_train.shape[0] // args['batch_size']} \n" \
           f"Total steps: {num_steps}\n" \
+          f"AWD after each batch: {'off' if args.get('awd_off') is True else 'on'}\n" \
           f"******************************************************************")

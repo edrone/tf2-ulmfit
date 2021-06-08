@@ -48,7 +48,8 @@ def evaluate(args):
                                                           pretrained_encoder_weights=args['model_weights_cp'],
                                                           spm_model_args=spm_args,
                                                           fixed_seq_len=args.get('fixed_seq_len'),
-                                                          num_classes=args['num_classes'])
+                                                          num_classes=args['num_classes'],
+                                                          with_batch_normalization=args.get('with_batch_normalization') or False)
     ulmfit_classifier.summary()
     print(f"Shapes - sequence inputs: {x_data.shape}, labels: {labels.shape}")
     return ulmfit_classifier, x_data, labels
@@ -57,7 +58,7 @@ def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
     x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     if args.get('test_tsv') is not None:
-        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=['test_tsv'], args=args,
+        x_test, y_test, _, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args,
                                                                also_return_df=True)
     else:
         x_test = y_test = None
@@ -67,7 +68,8 @@ def main(args):
                                                                pretrained_encoder_weights=args['model_weights_cp'],
                                                                spm_model_args=spm_args,
                                                                fixed_seq_len=args.get('fixed_seq_len'),
-                                                               num_classes=len(label_map))
+                                                               num_classes=len(label_map),
+                                                               with_batch_normalization=args.get('with_batch_normalization') or False)
     ulmfit_classifier.summary()
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print(f"************************ TRAINING INFO ***************************\n" \
@@ -128,6 +130,7 @@ if __name__ == "__main__":
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--label-map", required=True, help="Path to a text file containing labels")
+    argz.add_argument("--with-batch-normalization", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--out-path", required=True, help="(Training only): Directory to save the checkpoints and the final model")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())

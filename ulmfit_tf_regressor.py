@@ -21,12 +21,28 @@ If `--normalize-labels` is passed, the gold values are rescaled to a range betwe
 """
 
 def interactive_demo(args):
-    raise NotImplementedError
+    spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
+                                               tokenizer_file=args['spm_model_file'], \
+                                               add_bos=True, add_eos=True)
+    ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
+                                                          pretrained_encoder_weights=None,
+                                                          spm_model_args=spm_args,
+                                                          fixed_seq_len=args.get('fixed_seq_len'),
+                                                          with_batch_normalization=args.get('with_batch_normalization') or False)
+    ulmfit_regressor_model.load_weights(args['model_weights_cp'])
+    ulmfit_regressor_model.summary()
+    readline.parse_and_bind('set editing-mode vi')
+    while True:
+        sent = input("Paste a document to classify using a regressor: ")
+        subword_ids = spm_encoder(tf.constant([sent]))
+        y_hat = model.predict(subword_ids)[0]
+        print(f"Score: = {y_hat}")
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     x_data, y_data, df = read_numericalize(input_file=tsv_file,
                                            spm_model_file=args['spm_model_file'],
                                            max_seq_len = args.get('max_seq_len'),
+                                           fixed_seq_len = args.get('fixed_seq_len'),
                                            x_col=args['data_column_name'],
                                            y_col=args['gold_column_name'],
                                            sentence_tokenize=True,

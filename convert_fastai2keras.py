@@ -15,7 +15,8 @@ def main(args):
     lm_num, encoder_num, outmask_num, spm_encoder_model = save_as_keras(state_dict=state_dict,
                                                                         exp_name=exp_name,
                                                                         save_path=os.path.join(args['out_path'], 'keras_weights'),
-                                                                        spm_model_file=args['spm_model_file'])
+                                                                        spm_model_file=args['spm_model_file'],
+                                                                        fixed_seq_len=args.get('fixed_seq_len'))
     print("Exported weights successfully")
     tf.keras.backend.set_learning_phase(0)
     if args.get('fixed_seq_len') is None:
