@@ -118,7 +118,7 @@ def main(args):
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
     scheduler = STLRSchedule(args['lr'], num_steps)
-    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99, clipnorm=1.0)
     loss_fn, loss_metric = get_keras_regression_objects(args['loss_fn'])
     monitor_metric = 'mean_absolute_error' if args['loss_fn'] == 'mae' else 'mean_squared_error'
     callbacks = prepare_keras_callbacks(args=args, model=ulmfit_regressor_model, hub_object=hub_object,
@@ -134,8 +134,8 @@ def main(args):
                                callbacks=callbacks)
 
     save_dir = os.path.join(args['out_path'], 'final')
-    os.makedirs(save_dird, exist_ok=True)
-    ulmfit_regressor_model.save_weights(os.path.join(final_dir, 'regressor_final'))
+    os.makedirs(save_dir, exist_ok=True)
+    ulmfit_regressor_model.save_weights(os.path.join(save_dir, 'regressor_final'))
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
@@ -157,8 +157,8 @@ if __name__ == "__main__":
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
     argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
     argz.add_argument("--loss-fn", default='mae', choices=['mae', 'mse'], help="Loss function for regression (MAE or MSE).")
+    argz.add_argument("--with-batch-normalization", action='store_true', required=False, help="Use batch normalization (looks broken)")
     argz.add_argument("--normalize-labels", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
-    argz.add_argument("--with-batch-normalization", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--out-path", required=False, help="At training: directory to save the checkpoints and the final model. " \
                                                          "At evaluation: path where the TSV file with results will be saved.")

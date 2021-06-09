@@ -3,6 +3,7 @@ import numpy as np
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
+from ulmfit_commons import file_len
 
 """ Various ULMFit / FastAI related utils """
 
