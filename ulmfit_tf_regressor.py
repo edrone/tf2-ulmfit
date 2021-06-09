@@ -45,7 +45,7 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
                                            fixed_seq_len = args.get('fixed_seq_len'),
                                            x_col=args['data_column_name'],
                                            y_col=args['gold_column_name'],
-                                           sentence_tokenize=True,
+                                           sentence_tokenize=False,
                                            cut_off_final_token=False)
     if args.get('fixed_seq_len') is not None:
         x_data = tf.constant(x_data, dtype=tf.int32)
@@ -118,7 +118,7 @@ def main(args):
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
     scheduler = STLRSchedule(args['lr'], num_steps)
-    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99, clipnorm=1.0)
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn, loss_metric = get_keras_regression_objects(args['loss_fn'])
     monitor_metric = 'mean_absolute_error' if args['loss_fn'] == 'mae' else 'mean_squared_error'
     callbacks = prepare_keras_callbacks(args=args, model=ulmfit_regressor_model, hub_object=hub_object,

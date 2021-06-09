@@ -17,7 +17,7 @@ def ar_score(y_true, y_pred):
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
-    argz.add_argument("--results-tsv", required=True, help="Regressor results file") 
+    argz.add_argument("--results-tsv", required=True, help="Regressor results file")
     argz = vars(argz.parse_args())
     results = pd.read_csv(argz['results_tsv'], sep='\t')
     ar_score(results['gold'], results['y_preds'])
