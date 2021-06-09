@@ -21,6 +21,8 @@ If `--normalize-labels` is passed, the gold values are rescaled to a range betwe
 """
 
 def interactive_demo(args):
+    spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
+                'lumped_sents_separator': '[SEP]'}
     spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
                                                tokenizer_file=args['spm_model_file'], \
                                                add_bos=True, add_eos=True)
@@ -29,13 +31,13 @@ def interactive_demo(args):
                                                           spm_model_args=spm_args,
                                                           fixed_seq_len=args.get('fixed_seq_len'),
                                                           with_batch_normalization=args.get('with_batch_normalization') or False)
-    ulmfit_regressor_model.load_weights(args['model_weights_cp'])
+    ulmfit_regressor_model.load_weights(args['model_weights_cp']).expect_partial()
     ulmfit_regressor_model.summary()
     readline.parse_and_bind('set editing-mode vi')
     while True:
         sent = input("Paste a document to classify using a regressor: ")
         subword_ids = spm_encoder(tf.constant([sent]))
-        y_hat = model.predict(subword_ids)[0]
+        y_hat = ulmfit_regressor_model.predict(subword_ids)[0]
         print(f"Score: = {y_hat}")
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
