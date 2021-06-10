@@ -1,10 +1,6 @@
-import tensorflow as tf
-import tensorflow_text as text
 import tensorflow_hub as hub
-from tensorflow.python.ops import math_ops, array_ops
-from tensorflow.python.keras.engine import keras_tensor
-# from .awdlstm_tf2 import *
-from .ulmfit_tf2 import *
+from ulmfit_tf2 import *
+
 
 def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args,
                               also_return_spm_encoder=False, return_lm_head=False):
@@ -23,8 +19,9 @@ def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, sp
     else:
         return ret_layer
 
+
 def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args=None,
-                              also_return_spm_encoder=False, return_lm_head=False):
+                           also_return_spm_encoder=False, return_lm_head=False):
     """ Returns an ULMFiT encoder from a serialized SavedModel  """
     if also_return_spm_encoder:
         print(f"Info: The SPM layer is baked into the SavedModel. It will not be returned separately.")
@@ -32,17 +29,15 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         print(f"Info: When restoring the ULMFiT encoder from a SavedModel, `spm_model_args` has no effect`")
     restored_hub = hub.load(pretrained_weights)
 
-    if fixed_seq_len == None: # TODO: check tensorspec and print a pretty info if ragged parameters here and in the SavedModel are incompatible
+    if fixed_seq_len is None: # TODO: check tensorspec
         il = tf.keras.layers.Input(shape=(None,), ragged=True, name="numericalized_input", dtype=tf.int32)
-        #il_rows = tf.keras.layers.Input(shape=(None,), name="rowsplits", dtype=tf.int64)
-        # kl = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")
-        # kl_restored = hub.KerasLayer(restored_hub.encoder_num, trainable=True)(il)
         kl_restored = HubRaggedWrapper(hub_layer=hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True),
                                        name="hub_ulmfit_encoder_ragged")
         kl_tensor = kl_restored(il)
         if return_lm_head:
             if not hasattr(restored_hub, 'lm_head_biases'):
-                raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
+                raise ValueError("This SavedModel was serialized without the LM head biases. Please export "
+                                 "from FastAI again.")
             # rt = tf.RaggedTensor.from_row_splits(kl_restored[0], kl_restored[1])
             reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
             lm_head_ragged = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))
@@ -58,7 +53,8 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         kl_tensor = hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True, name="ulmfit_encoder")(il)['output']
         if return_lm_head:
             if not hasattr(restored_hub, 'lm_head_biases'):
-                raise ValueError("This SavedModel was serialized without the LM head biases. Please export from FastAI again.")
+                raise ValueError("This SavedModel was serialized without the LM head biases. Please export "
+                                 "from FastAI again.")
             reference_layer = getattr(restored_hub.encoder_num, 'layer_with_weights-0')
             lm_head = tf.keras.layers.TimeDistributed(TiedDense(reference_layer, 'softmax'))
             lm_head.set_weights([restored_hub.lm_head_biases.value()]) # untested
@@ -69,7 +65,7 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
     model = tf.keras.models.Model(inputs=il, outputs=ret_tensor)
     return model, restored_hub
 
-################################### end to end methods ###############################
+
 def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None, num_classes):
 
     ######## VERSION 1: ULMFiT sequence tagger model built from Python code - pass the path to a weights directory
@@ -93,14 +89,15 @@ def ulmfit_sequence_tagger(*, model_type, pretrained_encoder_weights, spm_model_
     tagger_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=tagger_head)
     return tagger_model, hub_object
 
+
 def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_model_args=None, fixed_seq_len=None):
 
     ######## VERSION 1: ULMFiT last state built from Python code - pass the path to a weights directory
     if model_type == 'from_cp':
         ulmfit_rnn_encoder = ulmfit_rnn_encoder_native(pretrained_weights=pretrained_encoder_weights,
-                                               spm_model_args=spm_model_args,
-                                               fixed_seq_len=fixed_seq_len,
-                                               also_return_spm_encoder=False)
+                                                       spm_model_args=spm_model_args,
+                                                       fixed_seq_len=fixed_seq_len,
+                                                       also_return_spm_encoder=False)
         hub_object = None
 
     ######## VERSION 2: ULMFiT last state built from a serialized SavedModel - pass the path to a directory containing 'saved_model.pb'
@@ -119,6 +116,7 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
         last_hidden_state = ulmfit_rnn_encoder.output[:, -1, :]
     last_hidden_state_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=last_hidden_state)
     return last_hidden_state_model, hub_object
+
 
 def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes,
                                spm_model_args=None, fixed_seq_len=None,
@@ -166,6 +164,7 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=fc_final)
     return document_classifier_model, hub_object
 
+
 def ulmfit_regressor(*, model_type, pretrained_encoder_weights,
                      spm_model_args=None, fixed_seq_len=None,
                      with_batch_normalization=False):
@@ -183,30 +182,30 @@ def ulmfit_regressor(*, model_type, pretrained_encoder_weights,
                                                        activation='linear')
     return regressor, hub_object
 
-########### ## THE CODE BELOW THIS LINE IS FOR DEBUGGING / UNSTABLE / EXPERIMENTAL ###########
+########### ORIGINAL CODE LEFT FOR REFERENCE ###########
 
-def ulmfit_tagger_functional(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None):
-    print("Building a regular LSTM model using only standard Keras blocks...")
-    AWD_LSTM_Cell1 = tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform')
-    AWD_LSTM_Cell2 = tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform')
-    AWD_LSTM_Cell3 = tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform')
-    il = tf.keras.layers.Input((fixed_seq_len,), ragged=True if fixed_seq_len is None else False)
-    l = tf.keras.layers.Masking(mask_value=1)(il)
-    l = tf.keras.layers.Embedding(35000, 400)(l)
-    l = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")(l)
-    l = tf.keras.layers.Dropout(0.3)(l)
-    l = tf.keras.layers.SpatialDropout1D(0.3)(l)
-    l = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")(l)
-    l = tf.keras.layers.SpatialDropout1D(0.5)(l)
-    l = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")(l)
-    l = tf.keras.layers.SpatialDropout1D(0.5)(l)
-    l = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")(l)
-    l = tf.keras.layers.SpatialDropout1D(0.5)(l)
-    l = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(l)
-    fake_model = tf.keras.models.Model(inputs=il, outputs=l)
-    if pretrained_weights is not None:
-        print("Restoring weights from file... (observe the warnings!)")
-        fake_model.load_weights(pretrained_weights)
-    else:
-        print("!!! THE MODEL WEIGHTS ARE UNINITIALIZED !!!")
-    return fake_model
+# def ulmfit_tagger_functional(*, num_classes=3, pretrained_weights=None, fixed_seq_len=None):
+#     print("Building a regular LSTM model using only standard Keras blocks...")
+#     AWD_LSTM_Cell1 = tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform')
+#     AWD_LSTM_Cell2 = tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform')
+#     AWD_LSTM_Cell3 = tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform')
+#     il = tf.keras.layers.Input((fixed_seq_len,), ragged=True if fixed_seq_len is None else False)
+#     l = tf.keras.layers.Masking(mask_value=1)(il)
+#     l = tf.keras.layers.Embedding(35000, 400)(l)
+#     l = EmbeddingDropout(encoder_dp_rate=0.4, name="emb_dropout")(l)
+#     l = tf.keras.layers.Dropout(0.3)(l)
+#     l = tf.keras.layers.SpatialDropout1D(0.3)(l)
+#     l = tf.keras.layers.RNN(AWD_LSTM_Cell1, return_sequences=True, name="AWD_RNN1")(l)
+#     l = tf.keras.layers.SpatialDropout1D(0.5)(l)
+#     l = tf.keras.layers.RNN(AWD_LSTM_Cell2, return_sequences=True, name="AWD_RNN2")(l)
+#     l = tf.keras.layers.SpatialDropout1D(0.5)(l)
+#     l = tf.keras.layers.RNN(AWD_LSTM_Cell3, return_sequences=True, name="AWD_RNN3")(l)
+#     l = tf.keras.layers.SpatialDropout1D(0.5)(l)
+#     l = tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(num_classes, activation='softmax'))(l)
+#     fake_model = tf.keras.models.Model(inputs=il, outputs=l)
+#     if pretrained_weights is not None:
+#         print("Restoring weights from file... (observe the warnings!)")
+#         fake_model.load_weights(pretrained_weights)
+#     else:
+#         print("!!! THE MODEL WEIGHTS ARE UNINITIALIZED !!!")
+#     return fake_model

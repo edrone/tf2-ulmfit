@@ -1,13 +1,5 @@
 import sentencepiece as spm
-from modelling_scripts.ulmfit_tf2 import SPMNumericalizer
-# from transformers import AutoTokenizer, PreTrainedTokenizerFast
-
-# TOKENIZER_ARGS = {
-#     "auto": {},
-#     "polish_roberta": {"bos_token": "<bos>", "eos_token": "</s>",
-#                        "unk_token": "<unk>", "pad_token": "<pad>",
-#                        "mask_token": "<mask>"}
-# }
+from ulmfit_tf2 import SPMNumericalizer
 
 class LMTokenizerFactory:
     """ Tokenizer factory
@@ -30,11 +22,8 @@ class LMTokenizerFactory:
             tok_obj.set_encode_extra_options(":".join(extra_opts))
         elif tokenizer_type == 'spm_tf_text':
             tok_obj = SPMNumericalizer(spm_path=tokenizer_file, add_bos=add_bos, add_eos=add_eos, fixedlen=fixedlen)
-        # elif tokenizer_type =='polish_roberta':
-        #     TOKENIZER_ARGS['polish_roberta']['tokenizer_file'] = tokenizer_file
-        #     tok_obj = PreTrainedTokenizerFast(**TOKENIZER_ARGS['polish_roberta'])
         elif tokenizer_type == 'none':
-            tok_obj=None
+            tok_obj = None
         else:
             raise ValueError(f"Unknown tokenizer type {tokenizer_type}")
         return tok_obj

@@ -1,0 +1,11 @@
+fastai==2.2.7
+nltk
+numpy
+pandas
+sentencepiece
+sklearn
+tensorflow==2.4.1
+tensorflow_hub
+tensorflow_text==2.4.3
+torch=1.7.1
+tqdm

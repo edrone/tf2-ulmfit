@@ -1,19 +1,18 @@
-import sys, os, argparse, readline
+import os, argparse, readline
 import json
-import tensorflow as tf
-import tensorflow_hub as hub
-import tensorflow_text
-from modelling_scripts.ulmfit_tf2_heads import *
-from modelling_scripts.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
+from ulmfit_tf2_heads import *
+from ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import check_unbounded_training
 
-DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'} # fixme: label map should not be hardcoded (maybe pass as parameter?)
+DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'}
+
 
 def r_jsonl(file_path):
     if not os.path.isfile(file_path): return None
     with open(file_path, 'r', encoding='utf-8') as file:
         return [json.loads(line) for line in file]
+
 
 def tokenize_and_align_labels(spmproc, ddpl_iob, max_seq_len):
     """
@@ -37,7 +36,8 @@ def tokenize_and_align_labels(spmproc, ddpl_iob, max_seq_len):
             sentence_ids.extend(spmproc.encode_as_ids(whitespace_token[0]))
             sentence_labels.extend([whitespace_token[1]]*len(subwords))
         if max_seq_len is not None:
-            sentence_tokens = sentence_tokens[:max_seq_len-2] # minus 2 tokens for BOS and EOS since the encoder was trained on sentences with these markers
+            # minus 2 tokens for BOS and EOS since the encoder was trained on sentences with these markers
+            sentence_tokens = sentence_tokens[:max_seq_len-2]
             sentence_ids = sentence_ids[:max_seq_len-2]
             sentence_labels = sentence_labels[:max_seq_len-2]
         sentence_tokens = [spmproc.id_to_piece(spmproc.bos_id())] + \
@@ -50,27 +50,17 @@ def tokenize_and_align_labels(spmproc, ddpl_iob, max_seq_len):
         labels.append(sentence_labels)
     return tokenized, numericalized, labels
 
+
 def interactive_demo(args, label_map):
-    #spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
-    #                                           tokenizer_file=args['spm_model_file'], \
-    #                                           add_bos=True, add_eos=True) # bos and eos will need to be added manually
-    spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
-                                               tokenizer_file=args['spm_model_file'], \
-                                               add_bos=True, add_eos=True) # bos and eos will need to be added manually
-    spm_args = {'spm_model_file': args['spm_model_file'],
-                'add_bos': False,
-                'add_eos': False,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spmproc = spm_encoder.spmproc
+    spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm',
+                                               tokenizer_file=args['spm_model_file'],
+                                               add_bos=True, add_eos=True)  # bos/eos will need to be added manually
     ulmfit_tagger, hub_object = ulmfit_sequence_tagger(model_type=args['model_type'],
                                                        pretrained_encoder_weights=None,
-                                                       spm_model_args=spm_args,
                                                        fixed_seq_len=args.get('fixed_seq_len'),
                                                        num_classes=len(label_map))
-    ulmfit_tagger.summary()
-    ulmfit_tagger.load_weights(args['model_weights_cp'])
-    print("Done")
+    ulmfit_tagger.load_weights(args['model_weights_cp']).expect_partial()
+    print("Restored weights successfully")
     ulmfit_tagger.summary()
     readline.parse_and_bind('set editing-mode vi')
     while True:
@@ -79,13 +69,14 @@ def interactive_demo(args, label_map):
         # the underlying object directly on purpose, so we have to convert it from regular to ragged tensor ourselves.
         subword_ids = spmproc.tokenize(sent)
         subword_ids = tf.RaggedTensor.from_tensor(tf.expand_dims(subword_ids, axis=0))
-        subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist() # this contains bytes, not strings
+        subwords = spmproc.id_to_string(subword_ids)[0].numpy().tolist()  # this contains bytes, not strings
         subwords = [s.decode() for s in subwords]
         ret = tf.argmax(ulmfit_tagger.predict(subword_ids)[0], axis=1).numpy().tolist()
         for subword, category in zip(subwords, ret):
             print("{:<15s}{:>4s}".format(subword, label_map[category]))
 
-def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info): # todo: https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
+
+def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info):
     if awd_off is not True:
         if hub_object is not None: hub_object.apply_awd(0.5)
         else: apply_awd_eagerly(model, 0.5)
@@ -97,17 +88,17 @@ def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, ste
     grads = tape.gradient(loss_value, model.trainable_variables)
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
+
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
     ddpl_iob = r_jsonl(args['ddpl_iob'])
     spm_args = {'spm_model_file': args['spm_model_file'],
                 'add_bos': False,
                 'add_eos': False,
-                'lumped_sents_separator': '[SEP]'
-    }
-    spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm', \
-                                               tokenizer_file=args['spm_model_file'], \
-                                               add_bos=False, add_eos=False) # bos and eos will need to be added manually
+                'lumped_sents_separator': '[SEP]'}
+    spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm',
+                                               tokenizer_file=args['spm_model_file'],
+                                               add_bos=False, add_eos=False)  # bos / eos will need to be added manually
     tokenized, numericalized, labels = tokenize_and_align_labels(spmproc, ddpl_iob, args.get('max_seq_len'))
     print(f"Generating {'ragged' if args.get('fixed_seq_len') is None else 'dense'} tensor inputs...")
     sequence_inputs = tf.ragged.constant(numericalized, dtype=tf.int32)
@@ -116,9 +107,11 @@ def main(args):
         sequence_inputs = sequence_inputs.to_tensor(1) # padding symbol is 1 with ULMFiT, not 0!
         subword_labels = subword_labels.to_tensor(0)
         sequence_inputs = tf.keras.preprocessing.sequence.pad_sequences(sequence_inputs, maxlen=args['fixed_seq_len'],
-                                                                        padding='post', truncating='post', value=1, dtype=int)
+                                                                        padding='post', truncating='post', value=1,
+                                                                        dtype=int)
         subword_labels = tf.keras.preprocessing.sequence.pad_sequences(subword_labels, maxlen=args['fixed_seq_len'],
-                                                                       padding='post', truncating='post', value=0, dtype=int)
+                                                                       padding='post', truncating='post', value=0,
+                                                                       dtype=int)
     ulmfit_tagger, hub_object = ulmfit_sequence_tagger(model_type=args['model_type'],
                                                        pretrained_encoder_weights=args['model_weights_cp'],
                                                        spm_model_args=spm_args,
@@ -160,32 +153,33 @@ def main(args):
         # TODO: add shuffling after every epoch
     return ulmfit_tagger, sequence_inputs, subword_labels, loss_fn, optimizer
 
+
 if __name__ == "__main__":
-    # TODO: the weights checkpoint quirk should be done away with, but to serialize anything custom into a SavedModel
-    # especially if that thing contains RaggedTensors is kind of nightmarish...
     argz = argparse.ArgumentParser()
-    argz.add_argument("--ddpl-iob", required=False, help="Training input file (assume whitespace tokenized)")
-    argz.add_argument("--model-weights-cp", required=True, help="For training: path to *weights* (checkpoint) of " \
-                                                                "the generic model (not the SavedModel/HDF5 blob!)." \
-                                                                "For demo: path to *weights* produced by this script")
-    argz.add_argument("--model-type", choices=['from_cp', 'from_hub'], default='from_cp', \
-                                                           help="Model type: from_cp = from checkpoint, from_hub = from TensorFlow hub")
+    argz.add_argument("--ddpl-iob", required=False, help="Whitespace-pretokenized and annotated input file")
+    argz.add_argument("--label-map", required=False, help="Path to a JSON file containing labels. If not given, "
+                                                          "3 classes will be used: 0 = 'O', 1 = 'B-N' and 2 = 'I-N'")
+    argz.add_argument("--model-weights-cp", required=True, help="Training: path to *weights* (checkpoint) of "
+                                                                "the generic model (not the SavedModel/HDF5 blob!)."
+                                                                "Evaluation/Interactive: path to *weights* produced "
+                                                                "by this script during training")
+    argz.add_argument("--model-type", choices=['from_cp', 'from_hub'], default='from_cp',
+                      help="Model type: from_cp = from checkpoint, from_hub = from TensorFlow hub")
     argz.add_argument('--spm-model-file', required=True, help="Path to SentencePiece model file")
-    argz.add_argument('--awd-off', required=False, action='store_true', help="Switch off AWD in the training loop.") # todo: set AWD rate
-    argz.add_argument('--fixed-seq-len', required=False, type=int, help="Fixed sequence length. If unset, the training "\
-                                                                        "script will use ragged tensors. Otherwise, it will use padding.")
-    argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length. Only makes sense with RaggedTensors.")
+    argz.add_argument('--awd-off', required=False, action='store_true', help="Switch off AWD in the training loop.")
+    argz.add_argument('--fixed-seq-len', required=False, type=int, help="Fixed sequence length. If unset, the training "
+                                                                        "script will use ragged tensors. Otherwise, it "
+                                                                        "will use padding.")
+    argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--label-map", required=False, help="Path to a JSON file containing labels. If not given, " \
-                                                          "3 classes will be used: 0 = 'O', 1 = 'B-N' and 2 = 'I-N'")
     argz.add_argument("--num-classes", type=int, default=3, help="Number of label categories")
-    argz.add_argument("--out-cp-name", default="ulmfit_tagger", help="(Training only): Checkpoint name to save every 10 steps")
+    argz.add_argument("--out-cp-name", default="ulmfit_tagger", help="Training: Checkpoint name to save every 10 steps")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
-        print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or `fixed_seq_len` with dense "\
-              "tensors to set a fixed sequence length with automatic padding, not both.")
+        print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or"
+              "`fixed_seq_len` with dense tensors to set a fixed sequence length with automatic padding, not both.")
         exit(1)
     if argz.get('ddpl_iob') is None and argz.get('interactive') is None:
         print("Please provide either a data file for training / evaluation or run the script with --interactive switch")
@@ -193,7 +187,7 @@ if __name__ == "__main__":
     if argz.get('interactive') is True:
         if argz.get('label_map') is not None:
             label_map = open(argz['label_map'], 'r', encoding='utf-8').readlines()
-            label_map = {k:v.strip() for k,v in enumerate(label_map) if len(v)>0}
+            label_map = {k:v.strip() for k,v in enumerate(label_map) if len(v) > 0}
         else:
             label_map = DEFAULT_LABEL_MAP
         interactive_demo(argz, label_map)

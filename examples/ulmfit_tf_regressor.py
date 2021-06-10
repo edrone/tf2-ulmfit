@@ -1,13 +1,9 @@
-import os, sys, argparse, readline, math
-import json
-import nltk
+import os, argparse, readline
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-import tensorflow_hub as hub
-import tensorflow_text
-from modelling_scripts.ulmfit_tf2_heads import ulmfit_regressor
-from modelling_scripts.ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
+from ulmfit_tf2_heads import ulmfit_regressor
+from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
 

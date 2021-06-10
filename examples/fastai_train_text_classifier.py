@@ -19,6 +19,7 @@ dictionary and no default pre/post tokenization rules.
 
 """
 
+
 def restore_encoder(*, pth_file, text_classifier):
     encoder = get_model(text_classifier)[0].module
     wgts = torch.load(pth_file, map_location='cuda' if torch.cuda.is_available() else 'cpu')
@@ -30,6 +31,7 @@ def restore_encoder(*, pth_file, text_classifier):
             renamed_keys[re.sub('^0.', '', k)] = v
     encoder.load_state_dict(renamed_keys)
     print("Encoder was restored")
+
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     label_map = read_labels(args['label_map'])
@@ -46,6 +48,7 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
         return x_data, y_data, label_map, df
     else:
         return x_data, y_data, label_map
+
 
 def make_fastai_learner(*, args, x_train, y_train, x_test, y_test, label_map, splits):
     x_data = [TensorText(k) for k in x_train] + [TensorText(k) for k in x_test]
@@ -68,6 +71,7 @@ def make_fastai_learner(*, args, x_train, y_train, x_test, y_test, label_map, sp
     learner_obj = Learner(dls, fastai_text_classifier, loss_func=CrossEntropyLossFlat(),
                           opt_func=opt_func, cbs=callbacks, metrics=[accuracy])
     return learner_obj, fastai_text_classifier, dls
+
 
 def evaluate(args):
     x_test, y_test, label_map, df = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args, also_return_df=True)
@@ -95,6 +99,7 @@ def evaluate(args):
         df2['result'] = np.where(df2['gold'] == df2['preds'], 'SUCCESS', 'FAIL')
         df2.to_csv(args['save_path'], sep='\t', index=None)
 
+
 def train(args):
     x_train, y_train, label_map = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
     if args.get('test_tsv'):
@@ -120,7 +125,7 @@ def train(args):
               "you don't want to use any pretrained weights?")
     print(learner_obj.model)
     print(dls.one_batch())
-    learner_obj.model_dir = '.'
+    learner_obj.model_dir = '..'
     if args.get('classifier_lr') is not None:
         learner_obj.fit_one_cycle(args['num_epochs'], args['classifier_lr'])
     else:
@@ -130,9 +135,11 @@ def train(args):
     learner_obj.save(os.path.join(args['save_path'], args['exp_name'])) # .pth will be added automatically
     return learner_obj
 
+
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
-    argz.add_argument("--train-tsv", required=False, help="Path to a training corpus. The script will handle numericalization via the spm model.")
+    argz.add_argument("--train-tsv", required=False, help="Path to a training corpus. The script will handle"
+                                                          "numericalization via the spm model.")
     argz.add_argument("--test-tsv", required=False, help="Path to a testing corpus")
     argz.add_argument("--spm-model-file", required=True, help="Path to SPM model")
     argz.add_argument("--pretrained-model", required=False, help="Path to a pretrained FastAI/PyTorch model. ")
@@ -141,8 +148,7 @@ if __name__ == "__main__":
     argz.add_argument("--batch-size", default=64, type=int, help="Batch size")
     argz.add_argument("--vocab-size", required=True, type=int, help="Vocabulary size")
     argz.add_argument("--num-epochs", required=False, type=int, help="Number of epochs to train for")
-    argz.add_argument("--classifier-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "\
-                                                                  "Only used for finetuning starting from the second epoch.") # 5e-4
+    argz.add_argument("--classifier-lr", required=False, type=float, help="Learning rate value for the 1- cycle policy optimizer.")  # 5e-4
     argz.add_argument("--save-path", required=False, help="Path where the outputs will be saved")
     argz.add_argument("--exp-name", required=False, help="Experiment name")
     argz.add_argument('--data-column-name', default='sentence', help="Name of the column containing X data")
