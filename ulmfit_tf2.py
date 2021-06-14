@@ -6,14 +6,24 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 
 # TODO:
-# Serialize One-cycle policy / STLR optimizer
+# Serialize One-cycle policy
 
 def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_args=None, vocab_size=None):
-    """ This function reconstructs an ULMFiT as a model trainable in Keras. If `fixed_seq_len` is None,
-        it uses RaggedTensors. Otherwise it sets a fixed sequence length on inputs and uses 1 (not zero!)
-        for padding.
+    """ Builds an ULMFiT as a model trainable in Keras.
 
-        Returns four instances of tf.keras.Model:
+        :param fixed_seq_len:            if set to `None`, builds a variable-length model with RaggedTensors.
+                                         Otherwise uses fixed-length sequences with 1 (not zero!) as padding.
+        :param flatten_ragged_outputs:   if set to `True`, the RaggedTensor output will be returned in a "decomposed"
+                                         representation of flat_values and row_splits (see RaggedTensor documentation).
+                                         You probably want to set this to `True` if preparing a model for serialization
+                                         and `False` if your code is entirely in Python and you only save Keras weights.
+        :param spm_args:                 a dictionary containing configuration for the SPMNumericalizer layer.
+                                         Valid keys are: `spm_model_file`, `add_bos`, `add_eos`, `name` and
+                                         `lumped_sents_separator`. If you pass `None`, the tokenizer and numericalizer
+                                         will not be created and you will need to numericalize the data yourself.
+        :param vocab_size:               (only relevant if `spm_args` is None) - number of subwords in the
+                                         vocabulary.
+        :return: Returns four instances of tf.keras.Model:
         lm_model_num - encoder with a language modelling head on top (and weights tied to embeddings).
                        This version accepts already numericalized text.
                        * Example call (fixed length):
@@ -56,7 +66,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
                                      add_bos=spm_args.get('add_bos') or False,
                                      add_eos=spm_args.get('add_eos') or False,
                                      fixed_seq_len=fixed_seq_len,
-                                     lumped_sents_separator=spm_args.get('lumped_sents_separator') or False,
+                                     lumped_sents_separator=spm_args.get('lumped_sents_separator') or "",
                                      name=f"{seq_type}_spm_numericalizer")
         numericalized_layer = spm_layer(string_input_layer)
         vocab_size_ = spm_layer.spmproc.vocab_size().numpy()
