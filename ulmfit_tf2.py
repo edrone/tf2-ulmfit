@@ -55,7 +55,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
         spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
                                      add_bos=spm_args.get('add_bos') or False,
                                      add_eos=spm_args.get('add_eos') or False,
-                                     fixedlen=fixed_seq_len,
+                                     fixed_seq_len=fixed_seq_len,
                                      lumped_sents_separator=spm_args.get('lumped_sents_separator') or False,
                                      name=f"{seq_type}_spm_numericalizer")
         numericalized_layer = spm_layer(string_input_layer)
@@ -311,7 +311,7 @@ class SPMNumericalizer(tf.keras.layers.Layer):
 
         Notice that the model file will be conveniently saved in the 'assets' directory.
     """
-    def __init__(self, name=None, spm_path=None, fixedlen=None,
+    def __init__(self, name=None, spm_path=None, fixed_seq_len=None,
                  pad_value=1, add_bos=False, add_eos=False, lumped_sents_separator="", **kwargs):
         self.spm_path = spm_path
         self.add_bos = add_bos
@@ -322,7 +322,7 @@ class SPMNumericalizer(tf.keras.layers.Layer):
             self.spm_asset = tf.saved_model.Asset(self.spm_path)
         self.spm_proto = tf.io.read_file(self.spm_asset).numpy()
         self.spmproc = text.SentencepieceTokenizer(self.spm_proto, add_bos=self.add_bos, add_eos=self.add_eos)
-        self.fixedlen = fixedlen
+        self.fixed_seq_len = fixed_seq_len
         self.pad_value = pad_value
         self.lumped_sents_separator = lumped_sents_separator
         super().__init__(name=name, **kwargs)
@@ -341,12 +341,12 @@ class SPMNumericalizer(tf.keras.layers.Layer):
             ret = ret.merge_dims(1, 2)
         else:
             ret = self.spmproc.tokenize(inputs)
-        if self.fixedlen is not None:
+        if self.fixed_seq_len is not None:
             ret_padded = ret.to_tensor(self.pad_value)
             ret_padded = tf.squeeze(ret_padded, axis=1)
-            ret_padded = tf.pad(ret_padded, tf.constant([[0, 0, ], [0, self.fixedlen, ]]),
+            ret_padded = tf.pad(ret_padded, tf.constant([[0, 0, ], [0, self.fixed_seq_len, ]]),
                                 constant_values=self.pad_value)
-            ret_padded = ret_padded[:, :self.fixedlen]
+            ret_padded = ret_padded[:, :self.fixed_seq_len]
             return ret_padded
         else:
             # ret = tf.squeeze(ret, axis=1)
@@ -372,17 +372,17 @@ class SPMNumericalizer(tf.keras.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         tf.print(f"INPUT SHAPE IS {input_shape}")
-        if self.fixedlen is None:
+        if self.fixed_seq_len is None:
             # return tf.TensorShape(input_shape[0], None)
             return (input_shape[0], None)
         else:
-            # return tf.TensorShape([input_shape[0], self.fixedlen])
-            return (input_shape[0], self.fixedlen)
+            # return tf.TensorShape([input_shape[0], self.fixed_seq_len])
+            return (input_shape[0], self.fixed_seq_len)
 
     def get_config(self):
         cfg = super().get_config()
         cfg.update({'spm_path': self.spm_path,
-                    'fixedlen': self.fixedlen,
+                    'fixed_seq_len': self.fixed_seq_len,
                     'pad_value': self.pad_value,
                     'add_bos': self.add_bos,
                     'add_eos': self.add_eos,

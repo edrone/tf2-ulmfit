@@ -14,7 +14,7 @@ def _restore_classifier_model_and_spm(args):
     spm_encoder = SPMNumericalizer(spm_path=args['spm_model_file'],
                                    add_bos=True,
                                    add_eos=True,
-                                   fixedlen=args.get('fixed_seq_len'))
+                                   fixed_seq_len=args.get('fixed_seq_len'))
     label_map = read_labels(args['label_map'])
     model, _ = build_lasthidden_classifier_model(args=args, num_labels=len(label_map),
                                                  restore_encoder=False)

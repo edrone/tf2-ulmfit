@@ -13,7 +13,7 @@ class LMTokenizerFactory:
         pass
 
     @staticmethod
-    def get_tokenizer(*, tokenizer_type, tokenizer_file, add_bos=False, add_eos=False, fixedlen=None):
+    def get_tokenizer(*, tokenizer_type, tokenizer_file, add_bos=False, add_eos=False, fixed_seq_len=None):
         if tokenizer_type == 'spm':
             tok_obj = spm.SentencePieceProcessor(tokenizer_file)
             extra_opts = []
@@ -21,7 +21,8 @@ class LMTokenizerFactory:
             if add_eos: extra_opts.append("eos")
             tok_obj.set_encode_extra_options(":".join(extra_opts))
         elif tokenizer_type == 'spm_tf_text':
-            tok_obj = SPMNumericalizer(spm_path=tokenizer_file, add_bos=add_bos, add_eos=add_eos, fixedlen=fixedlen)
+            tok_obj = SPMNumericalizer(spm_path=tokenizer_file, add_bos=add_bos, add_eos=add_eos,
+                                       fixed_seq_len=fixed_seq_len)
         elif tokenizer_type == 'none':
             tok_obj = None
         else:

@@ -38,7 +38,7 @@ def interactive_demo(args):
     spm_encoder = SPMNumericalizer(spm_path=args['spm_model_file'],
                                    add_bos=True,
                                    add_eos=True,
-                                   fixedlen=args.get('fixed_seq_len'))
+                                   fixed_seq_len=args.get('fixed_seq_len'))
     model, _ = ulmfit_document_classifier(model_type=args['model_type'],
                                           pretrained_encoder_weights=args['model_weights_cp'],
                                           spm_model_args=spm_args,
