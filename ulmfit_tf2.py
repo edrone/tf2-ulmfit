@@ -51,7 +51,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
 
     if spm_args is not None: # do not attach a string numericalizer if spm_args isn't passed
         seq_type = "ragged" if fixed_seq_len is None else "fixed"
-        string_input_layer = tf.keras.layers.Input(shape=(1,), dtype=tf.string, name=f"{seq_type}_string_input")
+        string_input_layer = tf.keras.layers.Input(shape=(None,), dtype=tf.string, name=f"{seq_type}_string_input")
         spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
                                      add_bos=spm_args.get('add_bos') or False,
                                      add_eos=spm_args.get('add_eos') or False,
@@ -251,12 +251,13 @@ class ExportableULMFiT(tf.keras.Model):
 
 class ExportableULMFiTRagged(tf.keras.Model):
     """ Same as ExportableULMFiT but supports RaggedTensors with a workaround """
-    def __init__(self, encoder_num, outmask_num, spm_encoder_model, lm_head_biases=None):
+    def __init__(self, encoder_num, outmask_num, spm_encoder_model, lm_head_biases=None, scheduler=None):
         super().__init__()
         self.encoder_num = encoder_num
         self.masker_num = outmask_num
         self.spm_encoder_model = spm_encoder_model
         self.lm_head_biases = tf.Variable(initial_value=lm_head_biases) if lm_head_biases is not None else None
+        self.stlr_scheduler = scheduler
 
     # def __call__(self, x):
     #     rag_num = self.string_numericalizer(x)['numericalized']
@@ -273,12 +274,20 @@ class ExportableULMFiTRagged(tf.keras.Model):
         return {'output_flat': ret[0],
                 'output_rows': ret[1]}
 
-    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    @tf.function(input_signature=[tf.TensorSpec([None, ], dtype=tf.string)])
+    def string_encoder(self, string_inputs):
+        numerical_representation = self.spm_encoder_model(string_inputs)
+        ret = self.encoder_num(numerical_representation)
+        return {'output_flat': ret[0],
+                'output_rows': ret[1]}
+
+    @tf.function(input_signature=[tf.TensorSpec([None, ], dtype=tf.string)])
     def string_numericalizer(self, string_inputs):
+        # string_inputs = tf.expand_dims(string_inputs, axis=-1)
         numerical_representation = self.spm_encoder_model(string_inputs)
         mask = self.masker_num(numerical_representation)
-        return {'numericalized': numerical_representation,
-                'mask': mask}
+        return {'numericalized_flat': numerical_representation.flat_values,
+                'numericalized_rows': numerical_representation.row_splits}
 
     @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.float32)])
     def apply_awd(self, awd_rate):
@@ -795,7 +804,7 @@ class AWDCallback(tf.keras.callbacks.Callback):
             apply_awd_eagerly(self.model_object, self.awd_rate)
 
 
-# TODO: make this serializable and try saving it together with ExportableModel
+@tf.keras.utils.register_keras_serializable()
 class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """
     Implementation of slanted triangular learning rates as a Keras LR scheduler.
@@ -816,6 +825,19 @@ class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         p = tf.cond(tf.less(step, self.cut), warmup, cooldown)
         current_lr = self.lr_max * ( (1 + (p*(self.ratio - 1))) / self.ratio)
         return current_lr
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({'lr_max': self.lr_max,
+                    'num_steps': self.T,
+                    'cut_frac': self.cut_frac,
+                    'ratio': self.ratio})
+        return cfg
+
+    @classmethod
+    def from_config(cls, config):
+        clazz = cls(**config)
+        return clazz
 
 
 class PredictionProgressCallback(tf.keras.callbacks.Callback):

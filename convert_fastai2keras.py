@@ -2,7 +2,7 @@ import os, shutil
 import argparse
 import tensorflow as tf
 from fastai_lm_utils import save_as_keras
-from ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged
+from ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged, STLRSchedule
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
@@ -20,8 +20,10 @@ def main(args):
     print("Exported weights successfully")
     tf.keras.backend.set_learning_phase(0)
     if args.get('fixed_seq_len') is None:
-        exportable = ExportableULMFiTRagged(encoder_num, outmask_num, spm_encoder_model, state_dict['1.decoder.bias'])
-        convenience_signatures={'numericalized_encoder': exportable.numericalized_encoder}
+        exportable = ExportableULMFiTRagged(encoder_num, outmask_num, spm_encoder_model, state_dict['1.decoder.bias'], STLRSchedule)
+        convenience_signatures = {'numericalized_encoder': exportable.numericalized_encoder,
+                                  'string_encoder': exportable.string_encoder,
+                                  'spm_processor': exportable.string_numericalizer}
         tf.saved_model.save(exportable, os.path.join(args['out_path'], 'saved_model'), signatures=convenience_signatures)
     else:
         exportable = ExportableULMFiT(encoder_num, outmask_num, spm_encoder_model, state_dict['1.decoder.bias'])
@@ -30,10 +32,10 @@ def main(args):
                                 'spm_processor': exportable.string_numericalizer}
         tf.saved_model.save(exportable, os.path.join(args['out_path'], 'saved_model'), signatures=convenience_signatures)
     print("Exported SavedModel successfully.")
-    os.makedirs(os.path.join(args['out_path'], 'fastai_model'))
+    os.makedirs(os.path.join(args['out_path'], 'fastai_model'), exist_ok=True)
     shutil.copy2(args['pretrained_model'], os.path.join(args['out_path'], 'fastai_model/'))
     print("FastAI model copied.")
-    os.makedirs(os.path.join(args['out_path'], 'spm_model'))
+    os.makedirs(os.path.join(args['out_path'], 'spm_model'), exist_ok=True)
     shutil.copy2(args['spm_model_file'], os.path.join(args['out_path'], 'spm_model/'))
     shutil.copy2(args['spm_model_file'].replace(".model", ".vocab"), os.path.join(args['out_path'], 'spm_model/'))
     print("SPM model copied. Conversion complete.")

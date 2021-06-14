@@ -47,7 +47,7 @@ def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file, fixed_seq_
     """
 
     import tensorflow as tf
-    from modelling_scripts.ulmfit_tf2 import tf2_ulmfit_encoder
+    from ulmfit_tf2 import tf2_ulmfit_encoder
 
     spm_args = {
         'spm_model_file': spm_model_file,
