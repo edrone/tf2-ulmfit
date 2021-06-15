@@ -108,7 +108,7 @@ The `fixed_seq_len` parameter is available not only in `SPMNumericalizer`, but a
 
 
 
-### 3.2. Obtaining the RNN encoder and restoring pretrained weights
+### 3.3. Obtaining the RNN encoder and restoring pretrained weights
 
 You can get an instance of a trainable `tf.keras.Model` containing the encoder by calling the `tf2_ulmfit_encoder` function like this:
 
@@ -180,7 +180,7 @@ It is also possible to restore the encoder from a local copy of a SavedModel dir
 
 
 
-## 4. How to use ULMFiT with some typical NLP tasks
+## 4. How to use ULMFiT for Tensorflow with some typical NLP tasks
 
 In the [examples](examples) directory we are providing training scripts which illustrate how the ULMFiT encoder can be used for a variety of downstream tasks. All the scripts are executable from the command line as Python modules (`python -m examples.ulmfit_tf_text_classifer --help`). After training models on custom data, you can run these scripts with the `--interactive` switch which allows you to type text in the console and display predictions.
 
@@ -272,30 +272,172 @@ The invocation is identical as in the previous section.
 
 ### 4.4. Regressor (`ulmfit_tf_regressor.py`)
 
+Sometimes instead of predicting a label from a fixed set of classes, you may want to predict a number. For instance, instead of classifying a hotel review as 'positive', 'negative', or 'neutral', you may want to predict the number of stars it was given. This is a regression task and and it turns out we can use ULMFiT for that purpose as well.
 
+We have observed that the regressor training often goes terribly wrong if the dataset is unbalanced. If there are some values that tend to dominate (e.g. reviews with 5 stars), the network will learn to output values between 4 and 6 regardless of input. If the imbalance isn't very large, you may do well with oversampling or adding weights to the loss function, but only up to the point where the data is better handled using anomaly detection techniques.
 
-```
-python -m examples.ulmfit_tf_regressor --train-tsv examples_data/hotels500.tsv --data-column-name review --gold-column-name rating --model-weights-cp /home/hkarbowy/_LM_MODELS_DATA/en_wikitext/04_trained_models/enwiki100_20epochs_35k_uncased/keras_weights/enwiki100_20epochs_35k_uncased --model-type from_cp --spm-model-file /home/hkarbowy/_LM_MODELS_DATA/en_wikitext/04_trained_models/enwiki100_20epochs_35k_uncased/spm_model/enwiki100-uncased-sp35k.model --max-seq-len 350 --batch-size 16 --num-epochs 12 --loss-fn mse --out-path ./hotel_regressor --save-best
-```
-
-
-
-### 4.5. Sequence tagger
-
-WIP - old text from another file:
-
-Frankly speaking, I haven't seen anyone (not even ULMFiT's authors) using this model for things like Named Entity Recognition (NER) or Part-of-Speech Tagging (POS). From what I know this is the first implementation of ULMFiT for Named Entity Recognition / sequence tagging. And it seems to work really well. Example usage:
+Example invocation:
 
 ```
-CP_PATH=path_to_checkpoint_exported_from_FastAI
-tagger, spm_proc = ulmfit_sequence_tagger(num_classes=3, \
-                   pretrained_weights=CP_PATH, \
-                   fixed_seq_len=768, \
-                   spm_model_file='pl_wiki100-sp35k.model', \
-                   also_return_spm_encoder=True)
+python -m examples.ulmfit_tf_regressor \
+          --train-tsv examples_data/hotels200.tsv \
+          --data-column-name review \
+          --gold-column-name rating \
+          --model-weights-cp keras_weights/enwiki100_20epochs_35k_uncased \
+          --model-type from_cp \
+          --spm-model-file spm_model/enwiki100-uncased-sp35k.model \
+          --max-seq-len 350 \
+          --batch-size 32 \
+          --num-epochs 12 \
+          --loss-fn mse \
+          --out-path ./hotel_regressor \
+          --save-best
 ```
 
-You can now run `tagger.summary()`, `tagger.fit(x, y, epochs=1, callbacks=[])` like you do with any keras model.
+The `--loss-fn` can be set to `mse` (mean squared error) or `mae` (mean absolute error). You can also pass `--normalize-labels` to squeeze the response values into the range between 0 and 1, which often improves the optimizer's convergence.
+
+After training the regressor, run the demo:
+
+```
+python -m examples.ulmfit_tf_regressor \
+          --model-weights-cp hotel_regressor/best_checkpoint/best \
+          --model-type from_cp \
+          --spm-model-file spm_model/enwiki100-toks-sp35k-uncased.model \
+          --max-seq-len 350 \
+          --interactive
+
+...
+
+Paste a document to classify using a regressor: hotel no security stole laptop avoid like plague
+Score: = [2.5436585]
+Paste a document to classify using a regressor: excellent hotel stay wonderful staff
+Score: = [6.9718037]
+```
+
+
+
+Compare this to a model trained with `--normalize-labels`:
+
+```\
+Paste a document to classify using a regressor: hotel no security stole laptop avoid like plague
+Score: = [0.12547399]
+Paste a document to classify using a regressor: excellent hotel stay wonderful staff
+Score: = [1.8454201]
+```
+
+
+
+### 4.5. Sequence tagger (`ulmfit_tf_seqtagger.py`) with a custom training loop
+
+A sequence tagging task involves marking each token as belonging to one of the classes. The typical examples here are Named Entity Recognition (NER) and Part-of-Speech (POS) tagging. Our example script uses input data with annotations on the word level (a small sample of sentences from the CONLL2013 dataset). These are provided as a JSONL file containing lists of tuples:
+
+```a single training example from the JSONL file
+[["Daniel", 5], ["Westlake", 6], [",", 0], ["46", 0], [",", 0], ["from", 0], ["Victoria", 1], [",", 0], ["made", 0], ["the", 0], ["first", 0], ["sucessful", 0], ["escape", 0], ["from", 0], ["Klongprem", 1], ["prison", 0], ["in", 0], ["the", 0], ["northern", 0], ["outskirts", 0], ["of", 0], ["the", 0], ["capital", 0], ["on", 0], ["Sunday", 0], ["night", 0], [".", 0]]
+```
+
+The numbers in the second element of each tuple are the token label defined in the labels map JSON file:
+
+```
+{"0": "O", "1": "B-LOC", "2": "I-LOC", "3": "B-ORG",
+ "4": "I-ORG", "5": "B-PER", "6": "I-PER"}
+```
+
+The vast majority of publicly available datasets for such tasks contain annotations on the word level. However, our version of ULMFiT uses subword tokenization which is almost universally adopted in newer language models. This means that the labels need to be re-aligned to subwords. The `ulmfit_tf_tagger.py` script contains a simple function called `tokenize_and_align_labels` which does that for you. 
+
+* Input word-level annotations from the training corpus
+
+  ```
+  Daniel         B-PER
+  Westlake       I-PER
+  ,                 O
+  46                O
+  from              O
+  Victoria       B-LOC
+  ...
+  ```
+
+* Annotations re-aligned to subwords:
+
+  ```
+  <s>               O
+  ▁Daniel        B-PER
+  ▁West          I-PER
+  lake           I-PER
+  ▁,                O
+  ▁46               O
+  ▁,                O
+  ▁from             O
+  ▁Victoria      B-LOC
+  ...
+  </s>              O
+  ```
+
+  
+
+The `ulmfit_tf_tagger.py` scripts also illustrates how you can use the ULMFiT model in a custom training loop. Instead of building a Keras model and calling `model.fit`, we create a training function that uses `tf.GradientTape`. Pay close attention to how the AWD regularization is applied:
+
+* if you are training on files from Tensorflow Hub - call the module's `apply_awd`serialized `tf.function` before each batch,
+* if you are using Keras weights - call`apply_awd_eagerly` from `ulmfit_tf2.py` before each batch
+
+```
+def train_step(*, model, hub_object, loss_fn, optimizer, awd_off=None, x, y, step_info):
+    if awd_off is not True:
+        if hub_object is not None: hub_object.apply_awd(0.5)
+        else: apply_awd_eagerly(model, 0.5)
+    with tf.GradientTape() as tape:
+        y_preds = model(x, training=True)
+        loss_value = loss_fn(y_true=y, y_pred=y_preds)
+        print(f"Step {step_info[0]}/{step_info[1]} | batch loss before applying gradients: {loss_value}")
+
+    grads = tape.gradient(loss_value, model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, model.trainable_variables))
+```
+
+
+
+Example invocation (training):
+
+```
+python -m examples.ulmfit_tf_seqtagger \
+          --train-jsonl examples_data/conll1000.jsonl \
+          --label-map examples_data/tagger_labels.json \
+          --spm-model-file spm_model/enwiki100-toks-sp35k-cased.model \
+          --model-weights-cp keras_weights/enwiki100_20epochs_toks_35k_cased \
+          --model-type from_cp \
+          --batch-size 32 \
+          --num-epochs 5 \
+          --out-path ./conll_tagger
+```
+
+Example invocation (demo - note the side effect of coarse alignment of B-LOC with all subwords of the first word in the training corpus. A more careful approach would have been to align B-LOC with only the first subword. 'Melfordshire' could then be tagged as `_M/B-LOC, elf/I-LOC, ord/I-LOC, shire/I-LOC`):
+
+```
+python -m examples.ulmfit_tf_seqtagger \
+          --label-map examples_data/tagger_labels.json \
+          --model-weights-cp ./conll_tagger/tagger \
+          --model-type from_cp \
+          --spm-model-file spm_model/enwiki100-toks-sp35k-cased.model \
+          --interactive
+
+Write a sentence to tag: What is the weather in Melfordshire ?
+<s>               O
+▁What             O
+▁is               O
+▁the              O
+▁weather          O
+▁in               O
+▁M             B-LOC
+elf            B-LOC
+ord            B-LOC
+shire          B-LOC
+▁                 O
+?                 O
+</s>              O
+```
+
+
+
+
 
 
 
@@ -317,7 +459,11 @@ WIP
 
 WIP
 
-### 5.5. Perplexity evaluation
+### 5.5. Unsupervised fine-tuning a pretrained language model in FastAI
+
+WIP
+
+### 5.6. Perplexity evaluation
 
 WIP
 
