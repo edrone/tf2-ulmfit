@@ -10,7 +10,7 @@ Table of contents
 
 This repository contains scripts used to pretrain ULMFiT language models in the FastAI framework, convert the result to a Keras model usable with Tensorflow 2.0, and fine-tune on downstream tasks in Tensorflow.
 
-Please note that whereas you can train any encoder head (document classification, sequence tagging, encoder-decoder etc.) in Tensorflow, the pretraining and fine-tuning of a generic language model should be done only in FastAI. This is because FastAI was written by ULMFiT's authors and contains all the important implementation details that might be omitted in the paper. Porting all these details to another framework is a big challenge. However, once you have the encoder weights trained in a proper way, the setup and hyperparameters of your downstream tasks can diverge from the original implementation (at the expense of regularization).
+Please note that whereas you can train any encoder head (document classification, sequence tagging, encoder-decoder etc.) in Tensorflow, the pretraining and fine-tuning of a generic language model should be done only in FastAI. This is because FastAI was written by ULMFiT's authors and contains all the important implementation details that might be omitted in the paper. Porting all these details to another framework is a big challenge. But having the encoder weights trained in a proper way and available in TF still allows you to take advantage of transfer learning for downstream tasks, even if your hyperparameters are suboptimal.
 
 Basically, ULMFiT is just 3 layers of a unidirectional LSTM network plus many regularization methods. We were successful in porting the following regularization techniques to TF2:
 
@@ -18,13 +18,13 @@ Basically, ULMFiT is just 3 layers of a unidirectional LSTM network plus many re
 * input dropout
 * RNN dropout
 * weight dropout (AWD) - must be called manually or via a KerasCallback
-* slanted triangular learning rates - available as a subcass of  `tf.keras.optimizers.schedules.LearningRateSchedule`
+* slanted triangular learning rates - available as a subclass of  `tf.keras.optimizers.schedules.LearningRateSchedule`
 
 The following techniques are NOT ported:
 
-* batch normalization with the document classification head - we could not get the model to converge on any validation set.
+* the LR finder and one-cycle policy for setting the learning rate schedule - this is implemented in newer versions of FastAI; instead we kept the slanted triangular learning rate scheduler as described in the original paper. There are many existing implementations of both LRFinder and 1-cycle policy for Keras available on the internet, though.
+* gradual unfreezing - you can very easily control this yourself by setting the `trainable` attribute on successive Keras layers
 * mysterious calls to undocumented things in FastAI like `rnn_cbs(alpha=2, beta=1)`
-* the one-cycle policy for finding the learning rate - this is implemented in newer versions of FastAI; instead we kept the slanted triangular learning rate scheduler as described in the original paper.
 
 
 
@@ -182,21 +182,103 @@ It is also possible to restore the encoder from a local copy of a SavedModel dir
 
 ## 4. How to use ULMFiT with some typical NLP tasks
 
+In the [examples](examples) directory we are providing training scripts which illustrate how the ULMFiT encoder can be used for a variety of downstream tasks. All the scripts are executable from the command line as Python modules (`python -m examples.ulmfit_tf_text_classifer --help`). After training models on custom data, you can run these scripts with the `--interactive` switch which allows you to type text in the console and display predictions.
+
 ### 4.1. Common parameter names used in this repo
 
-WIP
+The `main` method of each example script accepts a single parameter called `args` which is basically a configuration dictionary created from arguments passed in the command line. Here is a list of the most common arguments you will encounter:
 
-### 4.2. Document classification (the ULMFiT way)
+* Data:
+  * `--train-tsv / -- test-tsv ` - paths to source files containing training and test/validation data. For classification/regression tasks the input format is a TSV file with a header. For sequence tagging see below.
+  * `--data-column-name` - name of the column with input data
+  * `--gold-column-name` - name of the column with labels
+  * `--label-map` - path to a text (classifier) or json (sequence tagger) file containing labels.
+* Tokenization and numericalization:
+  * `--spm-model-file` - path to a Sentencepiece .model file
+  * `--fixed-seq-len` - if set, input data will be truncated or padded to this number of tokens. If unset, variable-length sequences and RaggedTensors will be used
+  * `--max-seq-len` - maximal number of tokens in a sequence. This should generally be set to some sensible value for your data, even if you use RaggedTensors, because one maliciously long sequence can cause an OOM error in the middle of training.
+* Restoring model weights and saving the finetuned version:
+  * `--model-weights-cp` - path to a local directory where the pretrained encoder weights are saved
+  * `--model-type` - what to expect in the directory given in the previous parameter. If set to `from_cp`, the script will expect Keras weights (in this case, provide the checkpoint name as well). If set to `from_hub`, it will expect SavedModel files.
+  * `--out-path` - where to save the model's weights after the training completes.
+* Training:
+  * `--num-epochs` - number of epochs
+  * `--batch-size` - batch size
+  * `--lr` - peak learning rate for the slanted triangular learning rate scheduler
+  * `--awd-off` - disables AWD regularization
+  * `--save-best` - if set, the training script will save the model with the best accuracy score on the test/validation set
 
-WIP
 
-### 4.3. Document classification (the classical way)
 
-WIP
+### 4.2. Document classification (the ULMFiT way - `ulmfit_tf_text_classifier.py`)
 
-### 4.4. Regressor
+This script attempts to replicate the document classifier architecture from the original ULMFiT paper. On top of the encoder there is a layer that concatenates three vectors:
 
-WIP
+* the max-pooled sentence vector
+* the average-pooled sentence vector
+* the encoder's last hidden state
+
+This representation is then passed through a 50-dimensional Dense layer. The last layer has a softmax activation and many neurons as there are classes. One issue we encountered here is batch normalization, which is included in the original paper, but which we were not able to use in Tensorflow. When adding BatchNorm to the model we found that we could not get it to converge on any validation set, so it is disabled in our scripts.
+
+Example invocation:
+
+```
+python -m examples.ulmfit_tf_text_classifier \
+          --train-tsv examples_data/sent200.tsv \
+          --data-column-name sentence \
+          --gold-column-name sentiment \
+          --label-map examples_data/document_classification_labels.txt \
+          --model-weights-cp keras_weights/enwiki100_20epochs_35k_uncased \
+          --model-type from_cp \
+          --spm-model-file enwiki100-uncased-sp35k.model \
+          --max-seq-len 300 \
+          --num-epochs 12 \
+          --batch-size 32 \
+          --lr 0.007 \
+          --out-path ./sent200trained \
+          --save-best
+```
+
+Now your classifier is ready in the `sent200trained` directory. The above command trains a classifier on a toy dataset and is almost guaranteed to overfit, but do give it a try with a demo:
+
+```
+python -m examples.ulmfit_tf_text_classifier \
+          --label-map examples_data/document_classification_labels.txt \
+          --model-weights-cp sent200trained/best_checkpoint/best \
+          --model-type from_cp \
+          --spm-model-file enwiki100-uncased-sp35k.model \
+          --max-seq-len 300 \
+          --interactive
+
+Paste a document to classify: this is the most depressing film i've ever seen . so boring i left before it finished .
+[('POSITIVE', 0.08279895782470703), ('NEGATIVE', 0.917201042175293)]
+Classification result: P(NEGATIVE) = 0.8749799728393555
+Paste a document to classify: this is the most fascinating film i've ever seen . so captivating i wish it went for another hour .
+[('POSITIVE', 0.998953104019165), ('NEGATIVE', 0.0010468183318153024)]
+Classification result: P(POSITIVE) = 0.998953104019165
+```
+
+
+
+### 4.3. Document classification (the classical way `ulmfit_tf_lasthidden_classifier.py`)
+
+This script shows you how you can use the sequence's last hidden state to build a document classifier. We found that its performance was far worse with our pretrained models than the performance of a classifier described in the previous section. We suspect this is because the model was pretrained using a sentence-tokenized corpus with EOS markers at the end of each sequence. To be coherent, we also passed the EOS marker to the classification head in this script, but apparently the recurrent network isn't able to store various sentence "summaries" in an identical token. We nevertheless leave this classification head in the repo in case anyone wanted to investigate potential bugs.
+
+From a technical point of view obtaining the last hidden state is somewhat challenging with RaggedTensors. It turns out we cannot use -1 indexing (`encoder_output[:, -1, :]`) as we would normally do with fixed-length tensors. See the function `ulmfit_last_hidden_state` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) for a workaround.
+
+The invocation is identical as in the previous section.
+
+
+
+### 4.4. Regressor (`ulmfit_tf_regressor.py`)
+
+
+
+```
+python -m examples.ulmfit_tf_regressor --train-tsv examples_data/hotels500.tsv --data-column-name review --gold-column-name rating --model-weights-cp /home/hkarbowy/_LM_MODELS_DATA/en_wikitext/04_trained_models/enwiki100_20epochs_35k_uncased/keras_weights/enwiki100_20epochs_35k_uncased --model-type from_cp --spm-model-file /home/hkarbowy/_LM_MODELS_DATA/en_wikitext/04_trained_models/enwiki100_20epochs_35k_uncased/spm_model/enwiki100-uncased-sp35k.model --max-seq-len 350 --batch-size 16 --num-epochs 12 --loss-fn mse --out-path ./hotel_regressor --save-best
+```
+
+
 
 ### 4.5. Sequence tagger
 

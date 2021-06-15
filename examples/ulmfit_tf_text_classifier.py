@@ -40,11 +40,13 @@ def interactive_demo(args):
                                    add_eos=True,
                                    fixed_seq_len=args.get('fixed_seq_len'))
     model, _ = ulmfit_document_classifier(model_type=args['model_type'],
-                                          pretrained_encoder_weights=args['model_weights_cp'],
+                                          pretrained_encoder_weights=None,
                                           spm_model_args=spm_args,
                                           fixed_seq_len=args.get('fixed_seq_len'),
                                           num_classes=len(label_map),
                                           with_batch_normalization=args.get('with_batch_normalization') or False)
+    model.load_weights(args['model_weights_cp']).expect_partial()
+    model.summary()
     readline.parse_and_bind('set editing-mode vi')
     while True:
         sent = input("Paste a document to classify: ")
@@ -148,6 +150,7 @@ if __name__ == "__main__":
                       help="Transform the Y values to be between 0 and max-1.")
     argz.add_argument("--out-path", required=False, help="Training: Path where the trained model (and best checkpoints)"
                                                          " will be saved. Evaluation: path to a TSV file with results")
+    argz.add_argument('--save-best', action='store_true', help="Save best checkpoint")
     argz.add_argument('--tensorboard', action='store_true', help="Save Tensorboard logs")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):

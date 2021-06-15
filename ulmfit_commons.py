@@ -62,7 +62,7 @@ def prepare_keras_callbacks(*, args, model, hub_object,
 
     """
     import tensorflow as tf
-    from modelling_scripts.ulmfit_tf2 import AWDCallback
+    from ulmfit_tf2 import AWDCallback
     callbacks = []
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=model if hub_object is None else None,

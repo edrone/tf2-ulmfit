@@ -136,6 +136,8 @@ def main(args):
     #                   callbacks=[ckpt_cb])
 
     ##### For RaggedTensors and variable-length sequences we have to use the GradientTape ########
+    os.makedirs(args['out_path'], exist_ok=True)
+    save_path = os.path.join(args['out_path'], 'tagger')
     ulmfit_tagger.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
     batch_size = args['batch_size']
     steps_per_epoch = sequence_inputs.shape[0] // batch_size
@@ -143,7 +145,7 @@ def main(args):
         for step in range(steps_per_epoch - 1):
             if step % 25 == 0:
                 print("Saving weights...")
-                ulmfit_tagger.save_weights(args['out_cp_name'])
+                ulmfit_tagger.save_weights(save_path)
             train_step(model=ulmfit_tagger,
                        hub_object=hub_object,
                        loss_fn=loss_fn, optimizer=optimizer,
@@ -175,7 +177,7 @@ if __name__ == "__main__":
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--num-classes", type=int, default=3, help="Number of label categories")
-    argz.add_argument("--out-cp-name", default="ulmfit_tagger", help="Training: Checkpoint name to save every 10 steps")
+    argz.add_argument("--out-path", default="ulmfit_tagger", help="Training: Checkpoint name to save every 25 steps")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or"
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     if argz.get('interactive') is True:
         if argz.get('label_map') is not None:
             label_map = open(argz['label_map'], 'r', encoding='utf-8').readlines()
-            label_map = {k:v.strip() for k,v in enumerate(label_map) if len(v) > 0}
+            label_map = {int(k):v.strip() for k,v in enumerate(label_map) if len(v) > 0}
         else:
             label_map = DEFAULT_LABEL_MAP
         interactive_demo(argz, label_map)
