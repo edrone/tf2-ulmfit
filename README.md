@@ -439,31 +439,123 @@ shire          B-LOC
 
 
 
+## 5. Pretraining your own language model from scratch (`pretraining_utils`)
+
+This section describes how to use a raw text corpus to train an ULMFiT language model. As explained at the beginning of this document and on our TFHub page, we use FastAI to train encoder weights, which we then convert to a Tensorflow model with the [convert_fastai2keras.py](convert_fastai2keras.py) script.
+
+Our data preparation methods are somewhat different from the approach taken by FastAI's authors described in [Training a text classifier](https://docs.fast.ai/tutorial.text.html#Training-a-text-classifier). In particular, our data is sentence-tokenized. We also dispense with special tokens for such as `\\xmaj` or `\\xxrep` and rely on sentencepiece tokenization entirely. For these reasons our training scripts skip all the preprocessing, tokenization, transforms and numericalization steps, and expect inputs to be provided in an already numericalized form. Some of these steps are factored out to external scripts instead, which you will find in the [pretraining_utils](pretraining_utils) directory and which are described below.
+
+Obtaining source data and cleaning it up will require different techniques for each data source. Here we assume that you are already past this stage and **that you already have a reasonably clean raw corpus**. All you need to do is save it as three large plain text files (e.g. `train.txt`, `valid.txt` and `test.txt`) with one sentence per line. This is important since our scripts add BOS and EOS markers at the beginning and end of each line. As an alternative, you may want to train a language model on paragraphs or documents - in which each line in your text files will need to correspond to a paragraph or a document.
 
 
-## 5. Pretraining your own language model from scratch
 
-### 5.1. Data preparation
+### 5.1. Basic cleanup and sentence tokenization (optional - `01_cleanup.py`)
+
+If your text isn't already sentence-tokenized, you can split it into sentences in separate lines with the `01_cleanup.py` script. Some minor cleanup and preprocessing is also performed, in particular punctuation characters are separated from words by a whitespace (ex. `what?` -> `what ?`).
+
+Example invocation:
+
+```
+python -m pretraining_utils.01_cleanup \
+          --lang english \
+          --input-text train_raw.txt \
+          --out-path ./train_sents.txt
+```
+
+
+
+### 5.2. Build subword vocabulary (`02_build_spm.py`)
+
+To avoid problems with out-of-vocabulary words, we recommend using a subword tokenizer such as **[Sentencepiece](https://github.com/google/sentencepiece)** (SPM). An important decision to take is how many subwords you want to have. Unless you are building something as big as GPT-3, it's probably safe to use ~30k subwords for English and maybe up to 50k for highly inflectional languages.
+
+Those of you who are proficient in using sentencepiece from the command line can build SPM from Google's repo and then run `spm_train` manually. The advantage is that you get to tweak things like character coverage, but remember to set the control character indices as expected by FastAI (see section 3.1) and not to their default values. If you don't need this much flexibility, you can run our wrapper around SPM trainer in `02_build_spm.py`.
+
+Example invocation:
+
+```
+python -m pretraining_utils.02_build_spm \
+          --corpus-path train_sents.txt \
+          --vocab-size 5000 \
+          --model-prefix wittgenstein
+```
+
+This will produce two files: `wittgenstein-sp5k.model` and `wittgenstein-sp5k.vocab`. You really only need the first one for further steps.
+
+
+
+### 5.3. Tokenize and numericalize your corpus (`03_encode_spm.py`) 
+
+Now that you have the raw text and the sentencepiece tokenizer, you can convert text to tokens and their IDs:
+
+- **Tokenization:** (observe the BOS/EOS markers!)
+  
+  ```
+  ['<s>', '▁The', '▁lim', 'its', '▁of', '▁my', '▁language', '▁mean', '▁the', '▁lim', 'its', '▁of', '▁my', '▁world', '</s>']
+  ```
+  
+- **Numericalization** (converting each subword to its ID in the dictionary):
+  
+  ```
+  [2, 200, 2240, 1001, 20, 317, 2760, 286, 9, 2240, 1001, 20, 317, 669, 3]
+  ```
+  
+  
+
+Because it was important for us to have full control over numericalization (we didn't want to use FastAI's default functions), our training scripts require the corpus to be numericalized before being fed to FastAI data loaders. The `03_encode_spm.py` file will read a plain text file with the source corpus and save another text file with its numericalized version. It will also add BOS and EOS markers.
+
+Example invocation:
+
+```
+python -m pretraining_utils.03_encode_spm \
+          --corpus-path ./train_sents.txt \
+          --model-path ./wittgenstein-sp5k.model \
+          --spm-extra-options bos:eos \
+          --output-format id \
+          --save-path ./train_ids.txt
+```
+
+
+
+### 5.4. Training in FastAI
+
+Congratulations! Now that your data is mangled, all you need to do is execute FastAI training. **Only do it on a CPU if your corpus is really tiny** as pretraining takes a significant amount of time. Before you run the training we advise that you study the argument descriptions (`--help` flag ) carefully, as there are several hyperparameters that will for sure need tweaking on your custom input. For large datasets (e.g. Wikipedia) in particular it will be useful to prepare a numericalized validation corpus and pass it via the `--pretokenized-valid` argument so that you can measure the perplexity metric after each epoch.
+
+Example invocation:
+
+```
+python ./fastai_ulmfit_train.py \
+       --pretokenized-train ./train_ids.txt \
+       --min-seq-len 7 \
+       --max-seq-len 80 \
+       --batch-size 128 \
+       --vocab-size 5000 \
+       --num-epochs 20 \
+       --save-path ./wittgenstein_lm \
+       --exp-name wittg
+
+...
+epoch     train_loss  valid_loss  accuracy  perplexity  time    
+0         6.454500    5.968120    0.094213  390.770355  02:40
+1         5.841645    5.346557    0.181822  209.884445  02:35
+2         5.404020    4.939891    0.204419  139.755066  03:07
+3         5.085054    4.652817    0.228302  104.879990  03:35
+4         4.877162    4.478850    0.241150  88.133247   03:38
+....
+```
+
+The result is as FastAI model file called `wittg.pth` which will be saved in the `wittgensteir_lm` directory.
+
+
+
+**5.5. Exporting to Tensorflow 2.0 and serializing the ExportableULMFiTRagged class**
 
 WIP
 
-### 5.2. Sentencepiece vocabulary
+### 5.6. Unsupervised fine-tuning a pretrained language model in FastAI
 
 WIP
 
-### 5.3. Training in FastAI
-
-WIP
-
-### 5.4. Exporting to Tensorflow 2.0 and serializing the ExportableULMFiTRagged class
-
-WIP
-
-### 5.5. Unsupervised fine-tuning a pretrained language model in FastAI
-
-WIP
-
-### 5.6. Perplexity evaluation
+### 5.7. Perplexity evaluation
 
 WIP
 
@@ -471,7 +563,7 @@ WIP
 
 ## 6. References and acknowledgements
 
-NCBIR grant.
+NCBIR grant + author's contact details
 
 
 

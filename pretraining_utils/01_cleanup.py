@@ -3,16 +3,19 @@ import unicodedata
 import logging
 import nltk
 import re
-from polish_sentence_nltk_tokenizer import extra_abbreviations
+from .polish_sentence_nltk_tokenizer import extra_abbreviations
 
 logging.basicConfig(level=logging.INFO)
 
 """
 Does basic cleanup
 
-python ./01_cleanup.py \
-       --input-text $LM_MODELS/../datasets/books/therepublic.txt \
-       --lang english
+python -m pretraining_utils.01_cleanup \
+          --input-text $LM_MODELS/../datasets/books/therepublic.txt \
+          --lang english
+
+Note: several preprocessing functions in this file are not used, but we left them here
+in case you have a corpus that needs more aggressive cleaning.
 
 """
 
@@ -25,9 +28,11 @@ def basic_cleanup(corpus_blob, lang, sent_tokenizer):
     Returns list of sentences
     """
     corpus_blob = corpus_blob.split('\n')
+    # remove wikipedia markers:
     corpus_blob = [s for s in corpus_blob if not (s.startswith("=") and s.endswith("="))]
     corpus_blob = " ".join(corpus_blob)
     sents = sent_tokenizer.tokenize(corpus_blob) # sentence-tokenize
+    sents = [unicodedata.normalize('NFKC', sent) for sent in sents]
     logging.info("Delicately splitting some punctuation characters")
     sents = [re.sub(r"(\w)([,!\?])", "\\1 \\2 ", sent) for sent in sents] # that extra space after the second group is deliberate
     logging.info("Splitting the sentence-final dot")
@@ -36,7 +41,6 @@ def basic_cleanup(corpus_blob, lang, sent_tokenizer):
     sents = [re.sub(r"([\"”„\(\)])", " \\1 ", sent) for sent in sents]
     sents = [re.sub("(&quot\s*;|&amp\s;)", "", sent) for sent in sents] # remove html quirks
     sents = [re.sub("\s{2,}", " ", sent) for sent in sents] # remove extra spaces
-    sents = [unicodedata.normalize('NFKC', sent) for sent in sents]
     return sents
 
 def recase(text, min_span=4, cap_first=False):
@@ -150,20 +154,23 @@ def main(args):
         corpus_blob = f.read()
     logging.info(f"Cleaning up the input file...")
     sent_tokenizer = nltk.data.load(f'tokenizers/punkt/{args["lang"]}.pickle')
-    sent_tokenizer._params.abbrev_types.update(extra_abbreviations)
+    if args['lang'] == 'polish':
+        sent_tokenizer._params.abbrev_types.update(extra_abbreviations)
     sents = basic_cleanup(corpus_blob, args['lang'], sent_tokenizer)
     if args.get('uncased') is True:
         logging.info(f"Downcasing...")
         sents = [sent.lower() for sent in sents]
         sents = [re.sub("(&quot\s*;|&amp\s;)", "", sent) for sent in sents]
-    with open(f"{args['input_text']}_pretokenized.txt", "w", encoding="utf-8") as f:
+    with open(f"{args['out_path']}", "w", encoding="utf-8") as f:
         for sent in sents: f.write(sent + "\n")
     logging.info("Done")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Performs sentence tokenization on an input text file "
+                                                 "and saves the result as a text file with one sentence in each line")
     parser.add_argument("--lang", required=True, help="NLTK language name for sentence tokenization.")
     parser.add_argument("--input-text", required=True, help="Path to a raw text corpus. One big single file.")
     parser.add_argument("--uncased", required=False, action='store_true', help="Downcase everything")
+    parser.add_argument("--out-path", required=True, help="Path where the results will be saved.")
     argz = parser.parse_args()
     main(vars(argz))

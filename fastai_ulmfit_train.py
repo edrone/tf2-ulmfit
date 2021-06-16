@@ -12,9 +12,8 @@ from fastai_lm_utils import lr_or_default, get_fastai_tensors, save_as_keras
 Pre-train ULMFit on already tokenized and numericalized corpora.
 
 This script roughly follows the original FastAI's tutorial (https://docs.fast.ai/tutorial.wikitext.html#Model)
-but we get rid of *ALL* Jeremy Howard's preprocessing quirks. In fact, we don't trust his preprocessing code
-so much that we prefer to delegate all the vocabulary building, tokenization and numericalization to
-a command-line invocation of SentencePiece. The only real thing we keep from FastAI is the training itself.
+but we dispense with their preprocessing transforms. Instead, we provide an already numericalized corpus
+to the trainer object.
 
 """
 
@@ -33,16 +32,16 @@ def _run_finetuning(learner_obj, args):
     """
     Finetune an existing ULMFit model.
 
-    We basically try not to overfit on the new dataset. How to do this is really art, not science,
-    so in the future we'll have to figure out experimentally what works best for AVA. For now
-    I tried to regularize the model as much as possible by:
+    We basically try not to cause catastrophic forgetting of the pretrained model.
+    One approach might be to:
 
-    1. Freezing the recurrent layers during the first epoch with the same learning rate as
+    1. Freeze the recurrent layers during the first epoch with the same learning rate as
        the pretrained model.
-    2. Unfreezing all the layers and training them with a much lower LR.
+    2. Unfreeze all the layers and train them with a much lower LR.
 
     This link gives some ideas: https://humboldt-wi.github.io/blog/research/information_systems_1819/group4_ulmfit/
-    but authors use the old scheduler (slanted triangular rates), so the code below is somewhat adapted.
+    but authors use the old version of ULMFiT's scheduler (slanted triangular rates), so the code below
+    is not 100% faithful to the blog post.
     """
     print(f"Will resume pretraining from {args['pretrained_model']}")
     print(f"Freezing all recurrent layers, leaving trainable LM head tied to embeddings")
@@ -72,7 +71,6 @@ def main(args):
     ############# The actual FastAI training happens below ############
 
     config = awd_lstm_lm_config.copy()
-    # this looks like an update specific to the Wikitext-2 corpus? The tutorial doesn't say anything about this, though.
     config.update({'input_p': 0.6,
                    'output_p': 0.4,
                    'weight_p': 0.5,
@@ -95,43 +93,27 @@ def main(args):
     print("Saving the ULMFit model in FastAI format ...")
     os.makedirs(args['save_path'], exist_ok=True)
     learner_obj.save(os.path.join(args['save_path'], args['exp_name'])) # .pth will be added automatically
-    # print("Saving the ULMFit model's weights into a pickle ...")
-    # pickle.dump(learner_obj.model.state_dict(), open(os.path.join(args['save_path'], f"{args['exp_name']}_state_dict.p"), 'wb'))
-    if args.get('export_to_tf2'):
-        print("Saving the ULMFit model to a Keras checkpoint...")
-        save_as_keras(state_dict=learner_obj.model.state_dict(),
-                      exp_name=args['exp_name'],
-                      save_path=args['save_path'],
-                      awd_weights='on',
-                      fixed_seq_len=None,
-                      spm_model_file=args['spm_model_file'])
-        print("Done")
-    return learner_obj
 
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
-    argz.add_argument("--pretokenized-train", required=False, help="Path to a pretokenized and numericalized training corpus. " \
-                      "Make sure you have <s> and </s> tokens there as needed because ULMFit will concatenate everything " \
+    argz.add_argument("--pretokenized-train", required=False, help="Path to a pretokenized and numericalized training corpus. "
+                      "Make sure you have <s> and </s> tokens there as needed because ULMFit will concatenate everything "
                       "into one big stream!")
-    argz.add_argument("--pretokenized-valid", required=False, help="Path to a pretokenized and numericalized validation corpus. " \
+    argz.add_argument("--pretokenized-valid", required=False, help="Path to a pretokenized and numericalized validation corpus. "
                       "Same tokenization rules apply as for the training corpus.")
-    argz.add_argument("--spm-model-file", required=True, help="Fixme: needed only to instantiate Keras saver")
-    argz.add_argument("--pretrained-model", required=False, help="Path to a pretrained FastAI/PyTorch model. " \
-                      "Use this as input to Keras conversion (state dict) or if you want to resume pretraining (pth model).")
+    argz.add_argument("--pretrained-model", required=False, help="Path to a pretrained FastAI model. Use this for unsupervised "
+                                                                 "finetuning")
     argz.add_argument("--min-seq-len", default=10, type=int, help="Minimal sentence length in the original corpus")
-    argz.add_argument("--max-seq-len", default=40, type=int, help="Maximal sequence length in a training batch. This is the same as BPTT.")
-    argz.add_argument("--batch-size", default=64, type=int, help="Batch size")
+    argz.add_argument("--max-seq-len", default=80, type=int, help="Maximal sequence length in a training batch. This is the same as BPTT.")
+    argz.add_argument("--batch-size", default=128, type=int, help="Batch size")
     argz.add_argument("--vocab-size", required=True, type=int, help="Vocabulary size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs to train for")
-    argz.add_argument("--pretrain-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "\
-                                                                      "At pretraining: the optimizer will use it for all layers. "\
-                                                                      "At finetuning: this lr will be used for one epoch on unfrozen LM head only") # 5e-3
-    argz.add_argument("--finetune-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "\
+    argz.add_argument("--pretrain-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "
+                      "At pretraining: the optimizer will use it for all layers. "
+                      "At finetuning: this lr will be used for one epoch on unfrozen LM head only") # 5e-3
+    argz.add_argument("--finetune-lr", required=False, type=float, help="Learning rate value for the one cycle policy optimizer. "
                                                                       "Only used for finetuning starting from the second epoch.") # 5e-4
     argz.add_argument("--save-path", required=True, help="Path where the outputs will be saved")
     argz.add_argument("--exp-name", required=True, help="Experiment name")
-    argz.add_argument("--export-to-tf2", action='store_true', help="Will save an additional TF checkpoint containing Keras-loadable "\
-                                                                  "ULMFit model with LM head.")
-
     argz = vars(argz.parse_args())
     main(argz)

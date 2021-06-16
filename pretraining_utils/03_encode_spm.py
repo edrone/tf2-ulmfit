@@ -7,13 +7,13 @@ import statistics
 """
 Encode corpus using a pretrained SPM model
 
-python ./02b_encode_spm.py \
-        --corpus-path $LM_MODELS/../datasets/books/therepublic_pretokenized.txt \
-        --model-path ./spm.model \
-        --spm-extra-options bos:eos \
-        --output-format id \
-        --save-path ./encoded_ids.txt \
-        --save-stats
+python -m pretraining_utils.03_encode_spm \
+          --corpus-path plato_therepublic.txt \
+          --model-path ./plato-sp5k.model \
+          --spm-extra-options bos:eos \
+          --output-format id \
+          --save-path ./encoded_ids.txt \
+          --save-stats
 """
 
 logging.basicConfig(level=logging.INFO)
