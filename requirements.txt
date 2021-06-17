@@ -7,5 +7,6 @@ sklearn
 tensorflow==2.4.1
 tensorflow_hub
 tensorflow_text==2.4.3
-torch=1.7.1
+torch==1.7.1
 tqdm
+black==21.6b0
