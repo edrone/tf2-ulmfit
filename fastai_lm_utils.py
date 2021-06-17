@@ -11,9 +11,10 @@ def lr_or_default(lr, learner_obj):
     if lr is not None:
         return lr
     else:
-        lr_min, lr_steep = learner_obj.lr_find()
+        print("Running the LR finder...")
+        lr_min, lr_steep = learner_obj.lr_find(suggestions=True)
         print(f"LR finder results: min rate {lr_min}, rate at steepest gradient: {lr_steep}")
-        return lr_steep
+        return lr_min
 
 def get_fastai_tensors(args):
     """ Read pretokenized and numericalized corpora and return them as TensorText objects understood by

@@ -42,8 +42,11 @@ def main(args):
     print(learner_obj.model)
 
     # Restore the pretrained model (.pth file)
+
     learner_obj.model_dir = os.path.dirname(os.path.abspath(args['pretrained_model']))
-    learner_obj.load(os.path.basename(args['pretrained_model']), device=device)
+    fname = os.path.basename(os.path.abspath(args['pretrained_model']))
+    fname = fname.strip(".pth")
+    learner_obj.load(fname, device=device)
     learner_obj.model.to(device)
     num_batches = data_loaders.train.n_batches
     bgen = data_loaders.train.create_batches(range(num_batches*args['batch_size']))
@@ -74,5 +77,4 @@ if __name__ == "__main__":
 
     argz = vars(argz.parse_args())
     argz['pretokenized_train'] = argz['pretokenized_test']
-    argz['pretrained_model'] = argz['pretrained_model'].strip('.pth')
     main(argz)
