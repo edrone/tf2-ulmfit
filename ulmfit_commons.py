@@ -62,11 +62,15 @@ def prepare_keras_callbacks(*, args, model, hub_object,
 
     """
     import tensorflow as tf
-    from ulmfit_tf2 import AWDCallback
+    from ulmfit_tf2 import AWDCallback, LRFinder, OneCycleScheduler
     callbacks = []
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=model if hub_object is None else None,
                                      hub_object=hub_object))
+    if args.get('lr_finder'):
+        max_steps = args['lr_finder']
+        lr_finder_cb = LRFinder(max_steps=max_steps)
+        callbacks.append(lr_finder_cb)
     if args.get('save_best') is True:
         best_dir = os.path.join(args['out_path'], 'best_checkpoint')
         os.makedirs(best_dir, exist_ok=True)

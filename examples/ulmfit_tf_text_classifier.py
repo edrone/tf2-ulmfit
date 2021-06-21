@@ -107,7 +107,10 @@ def main(args):
                                                    with_batch_normalization=args.get('with_batch_normalization') or False)
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
-    scheduler = STLRSchedule(args['lr'], num_steps)
+    if args.get('lr_finder') is None:
+        scheduler = STLRSchedule(args['lr'], num_steps)
+    else:
+        scheduler = None
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     callbacks = prepare_keras_callbacks(args=args, model=model, hub_object=hub_object,
@@ -144,7 +147,8 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
-    argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
+    argz.add_argument("--lr", default=0.01, type=float, help="Peak learning rate")
+    argz.add_argument("--lr-finder", type=int, help="Run a LR finder for this number of steps")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--with-batch-normalization", action='store_true', required=False,
                       help="Transform the Y values to be between 0 and max-1.")

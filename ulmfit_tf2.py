@@ -1,6 +1,7 @@
 import math
 import tensorflow as tf
 import tensorflow_text as text
+import matplotlib.pyplot as plt # for LRFinder
 from tqdm import trange
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
@@ -860,3 +861,167 @@ class PredictionProgressCallback(tf.keras.callbacks.Callback):
 
     def on_predict_batch_begin(self, batch, logs=None):
         self.progress_bar.update()
+
+
+# The three classes below for fine-tuning the learning rate (CosineAnnealer, OneCycleSheduler and LRFinder)
+# are implementations from a notebook by Andrich van Wyk (released under Apache 2.0 license).
+# Source: https://www.kaggle.com/avanwyk/tf2-super-convergence-with-the-1cycle-policy
+# They are not used in examples, but are left here for experiments with alternatives to triangular learning
+# rates.
+
+class CosineAnnealer:
+
+    def __init__(self, start, end, steps):
+        self.start = start
+        self.end = end
+        self.steps = steps
+        self.n = 0
+
+    def step(self):
+        self.n += 1
+        cos = np.cos(np.pi * (self.n / self.steps)) + 1
+        return self.end + (self.start - self.end) / 2. * cos
+
+
+class OneCycleScheduler(tf.keras.callbacks.Callback):
+    """`Callback` that schedules the learning rate on a 1cycle policy as per Leslie Smith's paper(https://arxiv.org/pdf/1803.09820.pdf).
+    If the model supports a momentum parameter, it will also be adapted by the schedule.
+    The implementation adopts additional improvements as per the fastai library: https://docs.fast.ai/callbacks.one_cycle.html, where
+    only two phases are used and the adaptation is done using cosine annealing.
+    In phase 1 the LR increases from `lr_max / div_factor` to `lr_max` and momentum decreases from `mom_max` to `mom_min`.
+    In the second phase the LR decreases from `lr_max` to `lr_max / (div_factor * 1e4)` and momemtum from `mom_max` to `mom_min`.
+    By default the phases are not of equal length, with the phase 1 percentage controlled by the parameter `phase_1_pct`.
+    """
+
+    def __init__(self, lr_max, steps, mom_min=0.85, mom_max=0.95, phase_1_pct=0.3, div_factor=25.):
+        super(OneCycleScheduler, self).__init__()
+        lr_min = lr_max / div_factor
+        final_lr = lr_max / (div_factor * 1e4)
+        phase_1_steps = steps * phase_1_pct
+        phase_2_steps = steps - phase_1_steps
+
+        self.phase_1_steps = phase_1_steps
+        self.phase_2_steps = phase_2_steps
+        self.phase = 0
+        self.step = 0
+
+        self.phases = [[CosineAnnealer(lr_min, lr_max, phase_1_steps), CosineAnnealer(mom_max, mom_min, phase_1_steps)], 
+                 [CosineAnnealer(lr_max, final_lr, phase_2_steps), CosineAnnealer(mom_min, mom_max, phase_2_steps)]]
+
+        self.lrs = []
+        self.moms = []
+
+    def on_train_begin(self, logs=None):
+        self.phase = 0
+        self.step = 0
+
+        self.set_lr(self.lr_schedule().start)
+        self.set_momentum(self.mom_schedule().start)
+
+    def on_train_batch_begin(self, batch, logs=None):
+        self.lrs.append(self.get_lr())
+        self.moms.append(self.get_momentum())
+
+    def on_train_batch_end(self, batch, logs=None):
+        self.step += 1
+        if self.step >= self.phase_1_steps:
+            self.phase = 1
+
+        self.set_lr(self.lr_schedule().step())
+        self.set_momentum(self.mom_schedule().step())
+
+    def get_lr(self):
+        try:
+            return tf.keras.backend.get_value(self.model.optimizer.lr)
+        except AttributeError:
+            return None
+
+    def get_momentum(self):
+        try:
+            return tf.keras.backend.get_value(self.model.optimizer.momentum)
+        except AttributeError:
+            return None
+
+    def set_lr(self, lr):
+        try:
+            tf.keras.backend.set_value(self.model.optimizer.lr, lr)
+        except AttributeError:
+            pass # ignore
+
+    def set_momentum(self, mom):
+        try:
+            tf.keras.backend.set_value(self.model.optimizer.momentum, mom)
+        except AttributeError:
+            pass # ignore
+
+    def lr_schedule(self):
+        return self.phases[self.phase][0]
+
+    def mom_schedule(self):
+        return self.phases[self.phase][1]
+
+    def plot(self):
+        ax = plt.subplot(1, 2, 1)
+        ax.plot(self.lrs)
+        ax.set_title('Learning Rate')
+        ax = plt.subplot(1, 2, 2)
+        ax.plot(self.moms)
+        ax.set_title('Momentum')
+        plt.show()
+
+
+class LRFinder(tf.keras.callbacks.Callback):
+    """`Callback` that exponentially adjusts the learning rate after each training batch between `start_lr` and
+    `end_lr` for a maximum number of batches: `max_step`. The loss and learning rate are recorded at each step allowing
+    visually finding a good learning rate as per https://sgugger.github.io/how-do-you-find-a-good-learning-rate.html via
+    the `plot` method.
+    """
+
+    def __init__(self, start_lr: float = 1e-7, end_lr: float = 10, max_steps: int = 100, smoothing=0.9):
+        super(LRFinder, self).__init__()
+        self.start_lr, self.end_lr = start_lr, end_lr
+        self.max_steps = max_steps
+        self.smoothing = smoothing
+        self.step, self.best_loss, self.avg_loss, self.lr = 0, 0, 0, 0
+        self.lrs, self.losses = [], []
+
+    def on_train_begin(self, logs=None):
+        self.step, self.best_loss, self.avg_loss, self.lr = 0, 0, 0, 0
+        self.lrs, self.losses = [], []
+
+    def on_train_batch_begin(self, batch, logs=None):
+        self.lr = self.exp_annealing(self.step)
+        tf.keras.backend.set_value(self.model.optimizer.lr, self.lr)
+
+    def on_train_batch_end(self, batch, logs=None):
+        logs = logs or {}
+        loss = logs.get('loss')
+        step = self.step
+        if loss:
+            self.avg_loss = self.smoothing * self.avg_loss + (1 - self.smoothing) * loss
+            smooth_loss = self.avg_loss / (1 - self.smoothing ** (self.step + 1))
+            self.losses.append(smooth_loss)
+            self.lrs.append(self.lr)
+
+            if step == 0 or loss < self.best_loss:
+                self.best_loss = loss
+
+            if smooth_loss > 4 * self.best_loss or tf.math.is_nan(smooth_loss):
+                self.model.stop_training = True
+
+        if step == self.max_steps:
+            self.model.stop_training = True
+
+        self.step += 1
+
+    def exp_annealing(self, step):
+        return self.start_lr * (self.end_lr / self.start_lr) ** (step * 1. / self.max_steps)
+
+    def plot(self):
+        fig, ax = plt.subplots(1, 1)
+        ax.set_ylabel('Loss')
+        ax.set_xlabel('Learning Rate (log scale)')
+        ax.set_xscale('log')
+        ax.xaxis.set_major_formatter(plt.FormatStrFormatter('%.0e'))
+        ax.plot(self.lrs, self.losses)
+        plt.show()
