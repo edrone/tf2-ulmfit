@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import tensorflow as tf
 import tensorflow_text as text
 import matplotlib.pyplot as plt # for LRFinder
@@ -62,7 +63,7 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
 
     if spm_args is not None: # do not attach a string numericalizer if spm_args isn't passed
         seq_type = "ragged" if fixed_seq_len is None else "fixed"
-        string_input_layer = tf.keras.layers.Input(shape=(None,), dtype=tf.string, name=f"{seq_type}_string_input")
+        string_input_layer = tf.keras.layers.Input(shape=(), dtype=tf.string, name=f"{seq_type}_string_input")
         spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
                                      add_bos=spm_args.get('add_bos') or False,
                                      add_eos=spm_args.get('add_eos') or False,
@@ -111,16 +112,29 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
     input_dropout = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}inp_dropout")
 
     ###### STAGE 3 - RECURRENT LAYERS ######
-    # Plain (TF optimized) LSTM cells - we will apply AWD manually in the training loop
-    rnn1 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'),
-                               return_sequences=True, name="AWD_RNN1")
-    rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1")
-    rnn2 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'),
-                               return_sequences=True, name="AWD_RNN2")
-    rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
-    rnn3 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform'),
-                               return_sequences=True, name="AWD_RNN3")
-    rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
+    # Plain LSTM cells - we will apply AWD manually in the training loop
+    # It turns out that the generic RNN API below will not use CuDNN kernel for LSTM networks.
+    #rnn1 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'),
+    #                           return_sequences=True, name="AWD_RNN1")
+    #rnn1_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop1")
+    #rnn2 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(1152, kernel_initializer='glorot_uniform'),
+    #                           return_sequences=True, name="AWD_RNN2")
+    #rnn2_drop = SpatialDrop1DLayer(0.3, name=f"{layer_name_prefix}rnn_drop2")
+    #rnn3 = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(400, kernel_initializer='glorot_uniform'),
+    #                           return_sequences=True, name="AWD_RNN3")
+    #rnn3_drop = SpatialDrop1DLayer(0.4, name=f"{layer_name_prefix}rnn_drop3")
+
+
+    # However, invoking the LSTM layer directly uses CuDNN if available
+    rnn1 = tf.keras.layers.LSTM(1152, kernel_initializer='glorot_uniform', return_sequences=True,
+                                name=f"AWD_RNN1")
+    rnn1_drop = SpatialDrop1DLayer(0.3, name=f"rnn_drop1")
+    rnn2 = tf.keras.layers.LSTM(1152, kernel_initializer='glorot_uniform', return_sequences=True,
+                                name=f"AWD_RNN2")
+    rnn2_drop = SpatialDrop1DLayer(0.3, name=f"rnn_drop2")
+    rnn3 = tf.keras.layers.LSTM(400, kernel_initializer='glorot_uniform', return_sequences=True,
+                                 name=f"AWD_RNN3")
+    rnn3_drop = SpatialDrop1DLayer(0.2, name=f"rnn_drop3")
 
     ###### STAGE 4. THE ACTUAL ENCODER MODEL ######
     numericalized_input = tf.keras.layers.Input(shape=(fixed_seq_len,), dtype=tf.int32,
@@ -234,7 +248,7 @@ class ExportableULMFiT(tf.keras.Model):
         w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
         rnn3_w[1].assign(w3_mask * rnn3_w[2])
 
-    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    @tf.function(input_signature=[tf.TensorSpec([None, ], dtype=tf.string)])
     def string_encoder(self, string_inputs):
         numerical_representation = self.string_numericalizer(string_inputs)
         hidden_states = self.numericalized_encoder(numerical_representation['numericalized'])['output']
@@ -242,7 +256,7 @@ class ExportableULMFiT(tf.keras.Model):
                 'numericalized': numerical_representation['numericalized'],
                 'mask': numerical_representation['mask']}
 
-    @tf.function(input_signature=[tf.TensorSpec((None,), dtype=tf.string)])
+    @tf.function(input_signature=[tf.TensorSpec([None, ], dtype=tf.string)])
     def string_numericalizer(self, string_inputs):
         numerical_representation = self.spm_encoder_model(string_inputs)
         mask = self.masker_num(numerical_representation)
@@ -346,15 +360,15 @@ class SPMNumericalizer(tf.keras.layers.Layer):
     @tf.function
     def call(self, inputs, training=None):
         if tf.not_equal(self.lumped_sents_separator, ""):
-            #splitted = text.regex_split(inputs, self.lumped_sents_separator.numpy().decode())
             splitted = tf.strings.split(inputs, self.lumped_sents_separator)
             ret = self.spmproc.tokenize(splitted)
             ret = ret.merge_dims(1, 2)
+            #ret = tf.strings.join(ret)
         else:
             ret = self.spmproc.tokenize(inputs)
         if self.fixed_seq_len is not None:
             ret_padded = ret.to_tensor(self.pad_value)
-            ret_padded = tf.squeeze(ret_padded, axis=1)
+            #ret_padded = tf.squeeze(ret_padded, axis=1)
             ret_padded = tf.pad(ret_padded, tf.constant([[0, 0, ], [0, self.fixed_seq_len, ]]),
                                 constant_values=self.pad_value)
             ret_padded = ret_padded[:, :self.fixed_seq_len]
@@ -362,7 +376,7 @@ class SPMNumericalizer(tf.keras.layers.Layer):
         else:
             # ret = tf.squeeze(ret, axis=1)
             return ret
-    
+
     # @tf.function(input_signature=[tf.TensorSpec((), dtype=tf.string)])
     def set_sentence_separator(self, sep):
         """ Insert additional <s> and </s> tokens between sentences in a single training example.
@@ -977,7 +991,7 @@ class LRFinder(tf.keras.callbacks.Callback):
     the `plot` method.
     """
 
-    def __init__(self, start_lr: float = 1e-7, end_lr: float = 10, max_steps: int = 100, smoothing=0.9):
+    def __init__(self, start_lr: float = 1e-5, end_lr: float = 10, max_steps: int = 100, smoothing=0.1):
         super(LRFinder, self).__init__()
         self.start_lr, self.end_lr = start_lr, end_lr
         self.max_steps = max_steps
@@ -991,7 +1005,7 @@ class LRFinder(tf.keras.callbacks.Callback):
 
     def on_train_batch_begin(self, batch, logs=None):
         self.lr = self.exp_annealing(self.step)
-        tf.keras.backend.set_value(self.model.optimizer.lr, self.lr)
+        tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.lr)
 
     def on_train_batch_end(self, batch, logs=None):
         logs = logs or {}

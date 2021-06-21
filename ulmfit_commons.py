@@ -57,6 +57,7 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
 
 def prepare_keras_callbacks(*, args, model, hub_object,
                             monitor_metric='val_sparse_categorical_accuracy'):
+
     """
     Build a list of Keras callbacks according to command-line parameters parsed into `args`.
 

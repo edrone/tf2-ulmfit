@@ -3,7 +3,7 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report
-from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback, SPMNumericalizer
+from ulmfit_tf2 import STLRSchedule, OneCycleScheduler, PredictionProgressCallback, SPMNumericalizer, LRFinder
 from ulmfit_tf2_heads import ulmfit_document_classifier
 from ulmfit_commons import read_labels, read_numericalize, check_unbounded_training, print_training_info, \
     prepare_keras_callbacks
@@ -15,11 +15,11 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
                                            spm_model_file=args['spm_model_file'],
                                            label_map=label_map,
                                            max_seq_len=args.get('max_seq_len'),
+                                           fixed_seq_len=args.get('fixed_seq_len'),
                                            x_col=args['data_column_name'],
                                            y_col=args['gold_column_name'],
                                            sentence_tokenize=True,
                                            cut_off_final_token=False)
-    print(y_data)
     if args.get('fixed_seq_len') is not None:
         x_data = tf.constant(x_data, dtype=tf.int32)
     else:
@@ -107,25 +107,32 @@ def main(args):
                                                    with_batch_normalization=args.get('with_batch_normalization') or False)
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
-    if args.get('lr_finder') is None:
+    if args.get('lr_finder') is None and args.get('lr_scheduler') == 'stlr':
         scheduler = STLRSchedule(args['lr'], num_steps)
     else:
-        scheduler = None
-    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
+        scheduler = 0.001
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     callbacks = prepare_keras_callbacks(args=args, model=model, hub_object=hub_object,
                                         monitor_metric='val_sparse_categorical_accuracy' if validation_data is not None
                                         else 'sparse_categorical_accuracy')
+    if args.get('lr_scheduler') == '1cycle':
+        print("Fitting with one-cycle")
+        callbacks.append(OneCycleScheduler(steps=num_steps, lr_max=args['lr']))
     model.compile(optimizer=optimizer_fn,
                   loss=loss_fn,
-                  metrics=['sparse_categorical_accuracy'])
+                  metrics=['accuracy'])
     model.summary()
     model.fit(x=x_train, y=y_train, validation_data=validation_data,
               batch_size=args['batch_size'], epochs=args['num_epochs'],
               callbacks=callbacks)
-    save_dir = os.path.join(args['out_path'], 'final')
-    os.makedirs(save_dir, exist_ok=True)
-    model.save_weights(os.path.join(save_dir, 'classifier_final'))
+    if args.get('lr_finder'):
+        lrfinder = [c for c in callbacks if isinstance(c, LRFinder)][0]
+        lrfinder.plot()
+    else:
+        save_dir = os.path.join(args['out_path'], 'final')
+        os.makedirs(save_dir, exist_ok=True)
+        model.save_weights(os.path.join(save_dir, 'classifier_final'))
 
 
 if __name__ == "__main__":
@@ -147,7 +154,9 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
-    argz.add_argument("--lr", default=0.01, type=float, help="Peak learning rate")
+    argz.add_argument("--lr-scheduler", choices=['sltr', '1cycle'], default='stlr', help="Learning rate "
+                      "scheduler (slanted triangular or one-cycle)")
+    argz.add_argument("--lr", default=0.001, type=float, help="Peak learning rate")
     argz.add_argument("--lr-finder", type=int, help="Run a LR finder for this number of steps")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
     argz.add_argument("--with-batch-normalization", action='store_true', required=False,
