@@ -346,7 +346,7 @@ Score: = [1.8454201]
 
 A sequence tagging task involves marking each token as belonging to one of the classes. The typical examples here are Named Entity Recognition (NER) and Part-of-Speech (POS) tagging. Our example script uses input data with annotations on the word level (a small sample of sentences from the CONLL2013 dataset). These are provided as a JSONL file containing lists of tuples:
 
-```a single training example from the JSONL file
+```
 [["Daniel", 5], ["Westlake", 6], [",", 0], ["46", 0], [",", 0], ["from", 0], ["Victoria", 1], [",", 0], ["made", 0], ["the", 0], ["first", 0], ["sucessful", 0], ["escape", 0], ["from", 0], ["Klongprem", 1], ["prison", 0], ["in", 0], ["the", 0], ["northern", 0], ["outskirts", 0], ["of", 0], ["the", 0], ["capital", 0], ["on", 0], ["Sunday", 0], ["night", 0], [".", 0]]
 ```
 
