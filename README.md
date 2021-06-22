@@ -196,25 +196,32 @@ In the [examples](examples) directory we are providing training scripts which il
 
 The `main` method of each example script accepts a single parameter called `args` which is basically a configuration dictionary created from arguments passed in the command line. Here is a list of the most common arguments you will encounter:
 
-* Data:
-  * `--train-tsv / -- test-tsv ` - paths to source files containing training and test/validation data. For classification/regression tasks the input format is a TSV file with a header. For sequence tagging see below.
-  * `--data-column-name` - name of the column with input data
-  * `--gold-column-name` - name of the column with labels
-  * `--label-map` - path to a text (classifier) or json (sequence tagger) file containing labels.
-* Tokenization and numericalization:
-  * `--spm-model-file` - path to a Sentencepiece .model file
-  * `--fixed-seq-len` - if set, input data will be truncated or padded to this number of tokens. If unset, variable-length sequences and RaggedTensors will be used
-  * `--max-seq-len` - maximal number of tokens in a sequence. This should generally be set to some sensible value for your data, even if you use RaggedTensors, because one maliciously long sequence can cause an OOM error in the middle of training.
-* Restoring model weights and saving the finetuned version:
-  * `--model-weights-cp` - path to a local directory where the pretrained encoder weights are saved
-  * `--model-type` - what to expect in the directory given in the previous parameter. If set to `from_cp`, the script will expect Keras weights (in this case, provide the checkpoint name as well). If set to `from_hub`, it will expect SavedModel files.
-  * `--out-path` - where to save the model's weights after the training completes.
-* Training:
-  * `--num-epochs` - number of epochs
-  * `--batch-size` - batch size
-  * `--lr` - peak learning rate for the slanted triangular learning rate scheduler
-  * `--awd-off` - disables AWD regularization
-  * `--save-best` - if set, the training script will save the model with the best accuracy score on the test/validation set
+*Data*:
+
+* `--train-tsv / -- test-tsv ` - paths to source files containing training and test/validation data. For classification/regression tasks the input format is a TSV file with a header. For sequence tagging see below.
+* `--data-column-name` - name of the column with input data
+* `--gold-column-name` - name of the column with labels
+* `--label-map` - path to a text (classifier) or json (sequence tagger) file containing labels.
+
+*Tokenization and numericalization*:
+
+* `--spm-model-file` - path to a Sentencepiece .model file
+* `--fixed-seq-len` - if set, input data will be truncated or padded to this number of tokens. If unset, variable-length sequences and RaggedTensors will be used
+* `--max-seq-len` - maximal number of tokens in a sequence. This should generally be set to some sensible value for your data, even if you use RaggedTensors, because one maliciously long sequence can cause an OOM error in the middle of training.
+
+*Restoring model weights and saving the finetuned version*:
+
+* `--model-weights-cp` - path to a local directory where the pretrained encoder weights are saved
+* `--model-type` - what to expect in the directory given in the previous parameter. If set to `from_cp`, the script will expect Keras weights (in this case, provide the checkpoint name as well). If set to `from_hub`, it will expect SavedModel files.
+* `--out-path` - where to save the model's weights after the training completes.
+
+*Training*:
+
+* `--num-epochs` - number of epochs
+* `--batch-size` - batch size
+* `--lr` - peak learning rate for the slanted triangular learning rate scheduler
+* `--awd-off` - disables AWD regularization
+* `--save-best` - if set, the training script will save the model with the best accuracy score on the test/validation set
 
 
 
@@ -326,7 +333,7 @@ Score: = [6.9718037]
 
 Compare this to a model trained with `--normalize-labels`:
 
-```\
+```
 Paste a document to classify using a regressor: hotel no security stole laptop avoid like plague
 Score: = [0.12547399]
 Paste a document to classify using a regressor: excellent hotel stay wonderful staff
