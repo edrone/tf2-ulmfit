@@ -10,7 +10,7 @@ Table of contents
 
 This repository contains scripts used to pretrain ULMFiT language models in the FastAI framework, convert the result to a Keras model usable with Tensorflow 2.0, and fine-tune on downstream tasks in Tensorflow.
 
-Please note that whereas you can train any encoder head (document classification, sequence tagging, encoder-decoder etc.) in Tensorflow, the pretraining and fine-tuning of a generic language model should be done only in FastAI. This is because FastAI was written by ULMFiT's authors and contains all the important implementation details that might be omitted in the paper. Porting all these details to another framework is a big challenge. But having the encoder weights trained in a proper way and available in TF still allows you to take advantage of transfer learning for downstream tasks, even if your hyperparameters are suboptimal.
+Please note that whereas you can train any encoder head (document classification, sequence tagging, encoder-decoder etc.) in Tensorflow, the pretraining and fine-tuning of a generic language model is still better done in FastAI. This is because FastAI was written by ULMFiT's authors and contains all the important implementation details that might be omitted in the paper. Porting all these details to another framework is a big challenge. But having the encoder weights trained in a proper way and available in TF still allows you to take advantage of transfer learning for downstream tasks, even if your hyperparameters are suboptimal.
 
 Basically, ULMFiT is just 3 layers of a unidirectional LSTM network plus many regularization methods. We were successful in porting the following regularization techniques to TF2:
 
@@ -18,11 +18,10 @@ Basically, ULMFiT is just 3 layers of a unidirectional LSTM network plus many re
 * input dropout
 * RNN dropout
 * weight dropout (AWD) - must be called manually or via a KerasCallback
-* slanted triangular learning rates - available as a subclass of  `tf.keras.optimizers.schedules.LearningRateSchedule`
+* learning rate schedulers: slanted triangular learning rates (available as a subclass of  `tf.keras.optimizers.schedules.LearningRateSchedule`) and one-cycle policy together with the learning rate finder ([implementations by Andrich van Wyk](https://www.kaggle.com/avanwyk/tf2-super-convergence-with-the-1cycle-policy)).
 
 The following techniques are NOT ported:
 
-* the LR finder and one-cycle policy for setting the learning rate schedule - this is implemented in newer versions of FastAI; instead we kept the slanted triangular learning rate scheduler as described in the original paper. There are many existing implementations of both LRFinder and 1-cycle policy for Keras available on the internet, though.
 * gradual unfreezing - you can very easily control this yourself by setting the `trainable` attribute on successive Keras layers
 * mysterious calls to undocumented things in FastAI like `rnn_cbs(alpha=2, beta=1)`
 
@@ -30,22 +29,23 @@ The following techniques are NOT ported:
 
 ## 2. Just give me the pretrained models
 
-Sure. You can download them for English and Polish in three different formats:
+Sure. You can download the cased/uncased versions for English and Polish in three different formats and two vocabulary sizes:
 
 * **TF 2.0 SavedModel** - available via Tensorflow Hub as a standalone module. This is great because you don't need any external code (including this repo) to build your own classifiers.
 * **Keras weights** - you can build a Keras encoder model using code from this repo and restore the weights via `model.load_weights(...)`. This can be handy if you need to tweak some parameters that were fixed by the paper's authors.
 * **FastAI .pth** **state_dict** - the original file which you can convert to a TF 2.0 models with the `convert_fastai2keras.py` script.
 
-All our models were trained on Wikipedia (the datasets were very similar, though not identical, to Wikitext-103) and use Sentencepiece to tokenize input strings into subwords.
+All our models were trained only on Wikipedia (the datasets were very similar, though not identical, to Wikitext-103) and use Sentencepiece to tokenize input strings into subwords.
 
 Here are the links:
 
-| Model            | TF 2.0 SavedModel | Keras weights | FastAI .pth file | Sentencepiece vocabulary models |
-| ---------------- | ----------------- | ------------- | ---------------- | ------------------------------- |
-| en-sp35k-cased   |                   |               |                  |                                 |
-| en-sp35k-uncased |                   |               |                  |                                 |
-| pl-sp50k-cased   |                   |               |                  |                                 |
-| pl-sp50k-uncased |                   |               |                  |                                 |
+| Model                | TF 2.0 SavedModel                                            | Keras weights                                                | FastAI model                                                 | Sentencepiece files                                          |
+| -------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **en-sp35k-cased**   | [TFHub page](https://tfhub.dev/edrone/ulmfit/en/sp35k_cased/1) and [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_cased/saved_model/enwiki100_20epochs_toks_35k_cased.tar.gz) | [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_cased/keras_weights/enwiki100_20epochs_toks_35k_cased_keras.tar.gz) | [.pth file](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_cased/fastai_model/enwiki100_20epochs_toks_35k_cased.pth) | [model](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_cased/spm_model/enwiki100-toks-sp35k-cased.model), [vocab](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_cased/spm_model/enwiki100-toks-sp35k-cased.vocab) |
+| **en-sp35k-uncased** | [TFHub page](https://tfhub.dev/edrone/ulmfit/en/sp35k_uncased/1) and [.tar.gz archive]( https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_uncased/saved_model/enwiki100_20epochs_toks_35k_uncased.tar.gz) | [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_uncased/keras_weights/enwiki100_20epochs_toks_35k_uncased_keras.tar.gz) | [.pth file](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_uncased/fastai_model/enwiki100_20epochs_toks_35k_uncased.pth) | [model](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_uncased/spm_model/enwiki100-toks-sp35k-uncased.model), [vocab](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/enwiki100_20epochs_toks_35k_uncased/spm_model/enwiki100-toks-sp35k-uncased.vocab) |
+| **pl-sp35k-cased**   | [TFHub page](https://tfhub.dev/edrone/ulmfit/pl/sp35k_cased/1) and [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_35k_cased/saved_model/plwiki100_20epochs_toks_35k_cased.tar.gz) | [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_35k_cased/keras_weights/plwiki100_20epochs_toks_35k_cased_keras.tar.gz) | [.pth file](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_35k_cased/fastai_model/plwiki100_20epochs_toks_35k_cased.pth) | [model](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_35k_cased/spm_model/plwiki100-toks-sp35k-cased.model), [vocab](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_35k_cased/spm_model/plwiki100-toks-sp35k-cased.vocab) |
+| **pl-sp50k-cased**   | [TFHub page](https://tfhub.dev/edrone/ulmfit/pl/sp50k_cased/1) and [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_cased/saved_model/plwiki100_20epochs_toks_50k_cased.tar.gz) | [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_cased/keras_weights/plwiki100_20epochs_toks_50k_cased_keras.tar.gz) | [.pth file](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_cased/fastai_model/plwiki100_20epochs_toks_50k_cased.pth) | [model](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_cased/spm_model/plwiki100-toks-sp50k-cased.model), [vocab](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_cased/spm_model/plwiki100-toks-sp50k-cased.vocab) |
+| **pl-sp50k-uncased** | [TFHub page](https://tfhub.dev/edrone/ulmfit/pl/sp50k_uncased/1) and [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_uncased/saved_model/plwiki100_20epochs_toks_50k_uncased.tar.gz) | [.tar.gz archive](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_uncased/keras_weights/plwiki100_20epochs_toks_50k_uncased_keras.tar.gz) | [.pth file](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_uncased/fastai_model/plwiki100_20epochs_toks_50k_uncased.pth) | [model](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_uncased/spm_model/plwiki100-toks-sp50k-uncased.model), [vocab](https://d3vhsxl1pwzf0p.cloudfront.net/ava/ulmfit/plwiki100_20epochs_toks_50k_uncased/spm_model/plwiki100-toks-sp50k-uncased.vocab) |
 
 
 
@@ -84,9 +84,9 @@ As you can see, the `SPMNumericalizer` object can even add BOS/EOS markers to ea
 
 ### 3.2. Fixed-length vs variable-length sequences
 
-In the previous section you see that sequences are numericalized into RaggedTensors containing variable length sequences. All the scripts, classes and functions in this repository operate on RaggedTensors by default. This is also the type of input data used by the SavedModel modules available from Tensorflow Hub.
+In the previous section you see that sequences are numericalized into RaggedTensors containing variable length sequences. All the scripts, classes and functions in this repository operate on RaggedTensors by default. We also assumed this input to be used throughout this guide and the SavedModel modules available from Tensorflow Hub.
 
-However, if for some reasons you prefer to work with fixed length tensors and padding, you can pass a `fixed_seq_len` parameter. This will truncate and pad all inputs to the specified length:
+**However, with RaggedTensors you cannot currently use Nvidia's CuDNN kernels for training LSTM networks**. This slows down your training on a GPU by ~5 to 7 times in comparison with the optimized implementation. For efficient training, you still need to set a fixed sequence length and add padding:
 
 ```
 spm_processor = SPMNumericalizer(name='spm_layer',
@@ -104,7 +104,7 @@ tf.Tensor(
       1     1     1     1     1     1     1     1     1     1]], shape=(1, 70), dtype=int32)
 ```
 
-The `fixed_seq_len` parameter is available not only in `SPMNumericalizer`, but also everywhere in this repo where sequence length is relevant. It also requires your Keras model to be built so that it expects same-length sequences as inputs (see section 5.5). In this guide we prefer the convenience of RaggedTensors and do not use this parameter.
+If you use the **`fixed_seq_len`** parameter in `SPMNumericalizer`, you should also ensure that any downstream layer consumes tensors with compatible shapes.  Specifically, the encoder (see next section) needs to be built with this parameter as well. The demo scripts in the [examples](examples/) directory can also be run with a `--fixed-seq-len` argument.
 
 
 
@@ -176,7 +176,15 @@ You now have an ULMFiT encoder model with randomly initialized weights. Sometime
 
 ```encoder_num.load_weights('keras_weights/enwiki100_20epochs_35k_cased').expect_partial()```
 
-It is also possible to restore the encoder from a local copy of a SavedModel directory. This is a little more involved and you will lose the information about all those prettily printed layers, but see the function `ulmfit_rnn_encoder_hub` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) if you are interested in this use case.
+Extra notes:
+
+* It is also possible to restore the encoder from a local copy of a SavedModel directory. This is a little more involved and you will lose the information about all those prettily printed layers, but see the function `ulmfit_rnn_encoder_hub` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) if you are interested in this use case.
+
+* To instantiate a fixed sequence length encoder with padding use:
+
+  `lm_num, encoder_num, mask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_args=spm_args, fixed_seq_len=100)`
+
+  then restore Keras weighs normally.
 
 
 
@@ -443,7 +451,7 @@ shire          B-LOC
 
 This section describes how to use a raw text corpus to train an ULMFiT language model. As explained at the beginning of this document and on our TFHub page, we use FastAI to train encoder weights, which we then convert to a Tensorflow model with the [convert_fastai2keras.py](convert_fastai2keras.py) script.
 
-Our data preparation methods are somewhat different from the approach taken by FastAI's authors described in [Training a text classifier](https://docs.fast.ai/tutorial.text.html#Training-a-text-classifier). In particular, our data is sentence-tokenized. We also dispense with special tokens for such as `\\xmaj` or `\\xxrep` and rely on sentencepiece tokenization entirely. For these reasons our training scripts skip all the preprocessing, tokenization, transforms and numericalization steps, and expect inputs to be provided in an already numericalized form. Some of these steps are factored out to external scripts instead, which you will find in the [pretraining_utils](pretraining_utils) directory and which are described below.
+Our data preparation methods are somewhat different from the approach taken by FastAI's authors described in [Training a text classifier](https://docs.fast.ai/tutorial.text.html#Training-a-text-classifier). In particular, our data is sentence-tokenized. We also dispense with special tokens for such as `\\xmaj` or `\\xxrep` and rely on sentencepiece tokenization entirely. For these reasons our training script skips all the preprocessing, tokenization, transforms and numericalization steps, and expect inputs to be provided in an already numericalized form. Some of these steps are factored out to external scripts instead, which you will find in the [pretraining_utils](pretraining_utils) directory and which are described below.
 
 Obtaining source data and cleaning it up will require different techniques for each data source. Here we assume that you are already past this stage and **that you already have a reasonably clean raw corpus**. All you need to do is save it as three large plain text files (e.g. `train.txt`, `valid.txt` and `test.txt`) with one sentence per line. This is important since our scripts add BOS and EOS markers at the beginning and end of each line. As an alternative, you may want to train a language model on paragraphs or documents - in which each line in your text files will need to correspond to a paragraph or a document.
 
@@ -501,7 +509,7 @@ Now that you have the raw text and the sentencepiece tokenizer, you can convert 
   
   
 
-Because it was important for us to have full control over numericalization (we didn't want to use FastAI's default functions), our training scripts require the corpus to be numericalized before being fed to FastAI data loaders. The `03_encode_spm.py` file will read a plain text file with the source corpus and save another text file with its numericalized version. It will also add BOS and EOS markers.
+Because it was important for us to have full control over numericalization (we didn't want to use FastAI's default functions), our training script requires the corpus to be numericalized before being fed to FastAI data loaders. The `03_encode_spm.py` file will read a plain text file with the source corpus and save another text file with its numericalized version. It will also add BOS (`2`) and EOS (`3`) markers.
 
 Example invocation:
 
@@ -558,7 +566,7 @@ CUDA_VISIBLE_DEVICES=-1 python ./convert_fastai2keras.py \
     --out-path ./tf_wittgenstein
 ```
 
-The default configuration is to produce TF models that use RaggedTensors. Optionally, you can pass the `--fixed-seq-len` argument, which will save TF objects that expect a fixed number of tokens in each sequence and require padding (see section 3.2). The outpus of the conversion script is a directory tree like this:
+The output of the conversion script is a directory tree like this:
 
 ```
 ├── fastai_model
@@ -601,14 +609,14 @@ If you are reading this page, you are probably all too familiar with this diagra
 
 ![ulmfit_approach](ulmfit_approach.webp)
 
-One important thing to remember is **what is meant by "fine-tuning"**. ULMFiT uses this term in two contexts and somewhat idiosyncratically:
+One important thing to remember is **what is meant by "fine-tuning"**. The ML community tends to use this term in two slightly different contexts:
 
-1. Adapting the general language model (grey arrow) more like the target domain (brown arrow) by resuming training on unlabeled text.
+1. Adapting the general language model (grey arrow) to be more like the target domain (brown arrow) by resuming training on unlabeled text.
 2. Training any language model (general or adapted to a domain) with a classifier head on top (yellow arrow).
 
-This is usually understood differently in the world of transformer-based models. When people talk about fine-tuning BERT, they typically skip the brown arrow altogether (unless the target domain is very large or very specific) and proceed straight to training the classifier (yellow arrow) using off-the-shelf weights.
+When people talk about fine-tuning BERT, they typically skip the brown arrow altogether (unless the target domain is very large or very specific) and proceed straight to training the classifier (yellow arrow) using off-the-shelf weights. On the other hand, fine-tuning an ULMFiT model usually involves both steps.
 
-The pretrained models we provide via Tensorflow Hub (the grey arrow) can often be used on the target task directly and still give decent results. But since they were trained on Wikipedia, they will never achieve accuracy scores in high nineties on datasets of conversational language or tweets. However, if you have an unlabelled corpus of texts from the target domain, you can use the `fastai_ulmfit_train.py` script again to produce the "intermediate" (brown arrow) model. The snag is, it's still FastAI (not TF), but once you have the `.pth` file, it can be converted to a TF-usable format with the script mentioned in the previous section.
+The pretrained models we provide via Tensorflow Hub (the grey arrow) can of course be used on the target task directly and still give decent results. But since they were trained on Wikipedia, they will never achieve accuracy scores in high nineties on datasets of conversational language or tweets. However, if you have an unlabelled corpus of texts from the target domain, you can use the `fastai_ulmfit_train.py` script again to produce the "intermediate" / adapted (brown arrow) model. The snag is, it's still FastAI (not TF), but once you have the `.pth` file, it can be converted to a TF-usable format with the script mentioned in the previous section.
 
 When running the `fastai_ulmfit_train.py` script you can optionally pass learning rate parameters via `--pretrain-lr` and `--finetune-lr` arguments for the one-cycle policy optimizer (see help descriptions). If you don't specify them, the script will run FastAI's [learning rate finder](https://fastai1.fast.ai/callbacks.lr_finder.html#lr_find) and set these parameters automatically.
 
