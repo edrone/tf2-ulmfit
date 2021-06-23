@@ -121,7 +121,7 @@ def main(args):
         callbacks.append(OneCycleScheduler(steps=num_steps, lr_max=args['lr']))
     model.compile(optimizer=optimizer_fn,
                   loss=loss_fn,
-                  metrics=['accuracy'])
+                  metrics=['sparse_categorical_accuracy'])
     model.summary()
     model.fit(x=x_train, y=y_train, validation_data=validation_data,
               batch_size=args['batch_size'], epochs=args['num_epochs'],
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
-    argz.add_argument("--lr-scheduler", choices=['sltr', '1cycle'], default='stlr', help="Learning rate "
+    argz.add_argument("--lr-scheduler", choices=['stlr', '1cycle'], default='stlr', help="Learning rate"
                       "scheduler (slanted triangular or one-cycle)")
     argz.add_argument("--lr", default=0.001, type=float, help="Peak learning rate")
     argz.add_argument("--lr-finder", type=int, help="Run a LR finder for this number of steps")
