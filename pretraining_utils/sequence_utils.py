@@ -22,7 +22,7 @@ def mk_labels(ls_json):
     # index_label = {index:label for index,label in enumerate(sorted(labels_set))}
     return label_index
 
-def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json): # todo: return intents
+def label_studio_to_tagged_subwords(*, spm_args, label_studio_min_json):
     spm_layer = SPMNumericalizer(name="SPM_layer",
                                  spm_path=spm_args['spm_model_file'],
                                  add_bos=spm_args.get('add_bos') or False,
