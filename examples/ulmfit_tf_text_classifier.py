@@ -64,11 +64,12 @@ def evaluate(args):
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
     model, _ = ulmfit_document_classifier(model_type=args['model_type'],
-                                          pretrained_encoder_weights=args['model_weights_cp'],
+                                          pretrained_encoder_weights=None,
                                           spm_model_args=spm_args,
                                           fixed_seq_len=args.get('fixed_seq_len'),
                                           num_classes=len(label_map),
                                           with_batch_normalization=args.get('with_batch_normalization') or False)
+    model.load_weights(args['model_weights_cp']).expect_partial()
     model.summary()
     y_probs_all = model.predict(x_test, batch_size=args['batch_size'],
                                 callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])

@@ -723,7 +723,7 @@ class ConcatPooler(tf.keras.layers.Layer):
         self._supports_ragged_inputs = False # for compatibility with TF 2.2
     
     def build(self, input_shape):
-        print(">>>> INSIDE BUILD / RaggedConcatPooler <<<< ")
+        print(">>>> INSIDE BUILD / ConcatPooler <<<< ")
     
     def call(self, inputs, training=None): # inputs is a fixed-length tensor
         last_hidden_state = inputs[:, -1, :] # nevermind padding - Keras mask ensures the last meaningful value is repeated until the sequence's end
