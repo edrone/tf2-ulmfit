@@ -147,7 +147,7 @@ if __name__ == "__main__":
     argz.add_argument("--model-type", choices=['from_cp', 'from_hub'], default='from_cp', \
                                                            help="Model type: from_cp = from checkpoint, from_hub = from TensorFlow hub")
     argz.add_argument('--spm-model-file', required=True, help="Path to SentencePiece model file")
-    argz.add_argument('--awd-off', required=False, action='store_true', help="Switch off AWD in the training loop.") # todo: set AWD rate
+    argz.add_argument('--awd-off', required=False, action='store_true', help="Switch off AWD in the training loop.")
     argz.add_argument('--fixed-seq-len', required=False, type=int, help="Fixed sequence length. If unset, the training "\
                                                                         "script will use ragged tensors. Otherwise, it will use padding.")
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length. Only makes sense with RaggedTensors.")

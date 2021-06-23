@@ -29,7 +29,7 @@ def ulmfit_rnn_encoder_hub(*, pretrained_weights=None, fixed_seq_len=None, spm_m
         print(f"Info: When restoring the ULMFiT encoder from a SavedModel, `spm_model_args` has no effect`")
     restored_hub = hub.load(pretrained_weights)
 
-    if fixed_seq_len is None: # TODO: check tensorspec
+    if fixed_seq_len is None:
         il = tf.keras.layers.Input(shape=(None,), ragged=True, name="numericalized_input", dtype=tf.int32)
         kl_restored = HubRaggedWrapper(hub_layer=hub.KerasLayer(restored_hub.signatures['numericalized_encoder'], trainable=True),
                                        name="hub_ulmfit_encoder_ragged")

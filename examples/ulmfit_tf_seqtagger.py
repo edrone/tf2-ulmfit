@@ -163,7 +163,6 @@ def main(args):
                        x=sequence_inputs[(step*batch_size):(step+1)*batch_size],
                        y=subword_labels[(step*batch_size):(step+1)*batch_size],
                        step_info=(step, steps_per_epoch))
-        # TODO: add shuffling after every epoch
     return ulmfit_tagger, sequence_inputs, subword_labels, loss_fn, optimizer
 
 

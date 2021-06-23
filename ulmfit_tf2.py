@@ -7,8 +7,6 @@ from tqdm import trange
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
 
-# TODO:
-# Serialize One-cycle policy
 
 def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_args=None, vocab_size=None):
     """ Builds an ULMFiT as a model trainable in Keras.

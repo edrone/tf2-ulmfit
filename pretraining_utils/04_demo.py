@@ -21,7 +21,6 @@ python -m modelling_scripts.lstm_with_wordpieces.04_demo \
           --add-bos
 """
 
-# todo: migrate spmto tensorflow_text?
 UNK_ID=0; PAD_ID=1; BOS_ID=2; EOS_ID=3
 logging.basicConfig(level=logging.INFO)
 
