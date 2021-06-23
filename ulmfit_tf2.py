@@ -724,13 +724,29 @@ class ConcatPooler(tf.keras.layers.Layer):
         self._supports_ragged_inputs = False # for compatibility with TF 2.2
     
     def build(self, input_shape):
-        print(">>>> INSIDE BUILD / RaggedConcatPooler <<<< ")
+        print(">>>> INSIDE BUILD / ConcatPooler <<<< ")
     
-    def call(self, inputs, training=None): # inputs is a fixed-length tensor
-        last_hidden_state = inputs[:, -1, :] # nevermind padding - Keras mask ensures the last meaningful value is repeated until the sequence's end
-        max_pooled = tf.math.reduce_max(inputs, axis=1)
-        mean_pooled = tf.math.reduce_mean(inputs, axis=1)
-        ret = tf.concat([last_hidden_state, max_pooled, mean_pooled], axis=1)
+    def call(self, inputs, training=None, mask=None): # inputs is a fixed-length tensor
+        # We cannot use the line below. An tf.keras.layers.LSTMCell wrapped around tf.keras.layers.RNN propagates the last hidden
+        # state to the end of the sequence when it encounters padding, whereas a tf.keras.layers.LSTM will insert zeroes.
+        # This is quite a gotcha, so we have to compute the position of the last hidden state from Keras mask instead.
+        #last_hidden_states = inputs[:, -1, :]
+
+        surely_masked_inputs = tf.where(tf.expand_dims(mask, axis=-1), inputs, tf.zeros_like(inputs)) # always zero on padding
+        surely_maxable_inputs = tf.where(tf.expand_dims(mask, axis=-1), inputs, tf.fill(tf.shape(inputs), -np.inf)) # always minus infinity on padding
+        num_indices = tf.reduce_sum(tf.cast(mask, dtype=tf.int32), axis=1) # number of tokens
+        last_indices = num_indices - 1 # last token index
+        batch_index = tf.range(tf.shape(inputs)[0])
+        last_hidden_states = tf.gather_nd(inputs, tf.stack([batch_index, last_indices], axis=1))
+
+        #mean_pooled = tf.math.reduce_mean(inputs, axis=1)
+        summed = tf.reduce_sum(surely_masked_inputs, axis=1)
+        mean_pooled = summed / tf.expand_dims(tf.cast(num_indices, dtype=tf.float32), axis=-1)
+
+        #max_pooled = tf.math.reduce_max(inputs, axis=1)
+        max_pooled = tf.math.reduce_max(surely_maxable_inputs, axis=1)
+
+        ret = tf.concat([last_hidden_states, max_pooled, mean_pooled], axis=1)
         return ret
 
     def compute_output_shape(self, input_shape):

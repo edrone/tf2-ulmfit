@@ -68,11 +68,12 @@ def evaluate(args):
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
     model, _ = ulmfit_document_classifier(model_type=args['model_type'],
-                                          pretrained_encoder_weights=args['model_weights_cp'],
+                                          pretrained_encoder_weights=None,
                                           spm_model_args=spm_args,
                                           fixed_seq_len=args.get('fixed_seq_len'),
                                           num_classes=len(label_map),
                                           with_batch_normalization=args.get('with_batch_normalization') or False)
+    model.load_weights(args['model_weights_cp']).expect_partial()
     model.summary()
     y_probs_all = model.predict(x_test, batch_size=args['batch_size'],
                                 callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])
@@ -125,7 +126,7 @@ def main(args):
         callbacks.append(OneCycleScheduler(steps=num_steps, lr_max=args['lr']))
     model.compile(optimizer=optimizer_fn,
                   loss=loss_fn,
-                  metrics=['accuracy'])
+                  metrics=['sparse_categorical_accuracy'])
     model.summary()
     model.fit(x=x_train, y=y_train, validation_data=validation_data,
               batch_size=args['batch_size'], epochs=args['num_epochs'],
@@ -158,7 +159,7 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
-    argz.add_argument("--lr-scheduler", choices=['sltr', '1cycle'], default='stlr', help="Learning rate "
+    argz.add_argument("--lr-scheduler", choices=['stlr', '1cycle'], default='stlr', help="Learning rate"
                       "scheduler (slanted triangular or one-cycle)")
     argz.add_argument("--lr", default=0.001, type=float, help="Peak learning rate")
     argz.add_argument("--lr-finder", type=int, help="Run a LR finder for this number of steps")
