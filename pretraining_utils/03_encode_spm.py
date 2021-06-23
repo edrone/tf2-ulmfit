@@ -1,9 +1,3 @@
-import argparse
-import logging
-import sentencepiece as spm
-import os
-import statistics
-
 """
 Encode corpus using a pretrained SPM model
 
@@ -15,6 +9,12 @@ python -m pretraining_utils.03_encode_spm \
           --save-path ./encoded_ids.txt \
           --save-stats
 """
+import argparse
+import logging
+import sentencepiece as spm
+import os
+import statistics
+
 
 logging.basicConfig(level=logging.INFO)
 

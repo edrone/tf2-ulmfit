@@ -1,3 +1,10 @@
+"""
+Pre-train ULMFit on already tokenized and numericalized corpora.
+
+This script roughly follows the original FastAI's tutorial (https://docs.fast.ai/tutorial.wikitext.html#Model)
+but we dispense with their preprocessing transforms. Instead, we provide an already numericalized corpus
+to the trainer object.
+"""
 import os, argparse
 import numpy as np
 import subprocess
@@ -8,14 +15,6 @@ from fastai.callback.all import *
 from fastai.text.all import *
 from fastai_lm_utils import lr_or_default, get_fastai_tensors, save_as_keras
 
-"""
-Pre-train ULMFit on already tokenized and numericalized corpora.
-
-This script roughly follows the original FastAI's tutorial (https://docs.fast.ai/tutorial.wikitext.html#Model)
-but we dispense with their preprocessing transforms. Instead, we provide an already numericalized corpus
-to the trainer object.
-
-"""
 
 def _run_pretraining(learner_obj, args):
     """

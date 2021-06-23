@@ -1,3 +1,10 @@
+"""
+Train an ULMFiT regressor model
+
+A regressor model outputs a real-number value whereas a classifier model outputs class probabilities.
+
+If `--normalize-labels` is passed, the gold values are rescaled to a range between 0 and 1
+"""
 import os, argparse, readline
 import pandas as pd
 import numpy as np
@@ -7,14 +14,6 @@ from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
 
-"""
-Train an ULMFiT regressor model
-
-A regressor model outputs a real-number value whereas a classifier model outputs class probabilities.
-
-If `--normalize-labels` is passed, the gold values are rescaled to a range between 0 and 1
-
-"""
 
 def interactive_demo(args):
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,

@@ -1,3 +1,11 @@
+"""
+Calculate the perplexity of a pretrained ULMFit language model the FastAI way
+
+FastAI appears to lump all sentences in the entire corpus into one long string and shift
+them one token at a time. We keep the original script here since it's faster (though different)
+than our implementation in TF.
+
+"""
 import os, argparse
 import numpy as np
 import pickle
@@ -7,15 +15,6 @@ from fastai.callback.all import *
 from fastai.text.all import *
 from ulmfit_commons import file_len
 from fastai_lm_utils import get_fastai_tensors
-
-"""
-Calculate the perplexity of a pretrained ULMFit language model the FastAI way
-
-FastAI appears to lump all sentences in the entire corpus into one long string and shift
-them one token at a time. We keep the original script here since it's faster (though different)
-than our implementation in TF. 
-
-"""
 
 
 def main(args):

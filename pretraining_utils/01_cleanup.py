@@ -1,12 +1,3 @@
-import argparse
-import unicodedata
-import logging
-import nltk
-import re
-from .polish_sentence_nltk_tokenizer import extra_abbreviations
-
-logging.basicConfig(level=logging.INFO)
-
 """
 Does basic cleanup
 
@@ -16,8 +7,15 @@ python -m pretraining_utils.01_cleanup \
 
 Note: several preprocessing functions in this file are not used, but we left them here
 in case you have a corpus that needs more aggressive cleaning.
-
 """
+import argparse
+import unicodedata
+import logging
+import nltk
+import re
+from .polish_sentence_nltk_tokenizer import extra_abbreviations
+
+logging.basicConfig(level=logging.INFO)
 
 
 def basic_cleanup(corpus_blob, lang, sent_tokenizer):

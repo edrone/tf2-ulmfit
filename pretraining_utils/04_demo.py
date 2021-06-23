@@ -1,13 +1,3 @@
-import argparse
-import logging
-import pickle
-import tensorflow as tf
-import numpy as np
-import heapq
-import readline
-import sentencepiece as spm
-from ..ulmfit_tf2_heads import ulmfit_rnn_encoder_native, ulmfit_rnn_encoder_hub
-
 """
 Runs an interactive demo of a pretrained ULMFiT language model.
 
@@ -20,6 +10,16 @@ python -m modelling_scripts.lstm_with_wordpieces.04_demo \
           --spm-model-file $PRETRAINED_MODELS/wiki-pl-100-sp50k-cased/spm_model/plwiki100-sp50k-cased.model \
           --add-bos
 """
+import argparse
+import logging
+import pickle
+import tensorflow as tf
+import numpy as np
+import heapq
+import readline
+import sentencepiece as spm
+from ..ulmfit_tf2_heads import ulmfit_rnn_encoder_native, ulmfit_rnn_encoder_hub
+
 
 UNK_ID=0; PAD_ID=1; BOS_ID=2; EOS_ID=3
 logging.basicConfig(level=logging.INFO)

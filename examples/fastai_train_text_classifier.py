@@ -1,11 +1,3 @@
-import os, re, argparse
-import numpy as np
-from collections import OrderedDict
-import pickle
-from fastai.text.all import *
-from ulmfit_commons import read_labels, read_numericalize
-from sklearn.metrics import classification_report
-
 """
 Fine-tune an ULMFiT text classifier from:
 
@@ -18,6 +10,13 @@ This implies that the pretrained language model must have been trained using the
 dictionary and no default pre/post tokenization rules.
 
 """
+import os, re, argparse
+import numpy as np
+from collections import OrderedDict
+import pickle
+from fastai.text.all import *
+from ulmfit_commons import read_labels, read_numericalize
+from sklearn.metrics import classification_report
 
 
 def restore_encoder(*, pth_file, text_classifier):

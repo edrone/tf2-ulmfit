@@ -1,3 +1,6 @@
+"""
+Evaluate perplexity of a causal language model in Tensorflow.
+"""
 import numpy as np
 import tensorflow as tf
 import argparse
@@ -5,8 +8,6 @@ from corpus_feeder import LMCorpusLoader
 from ulmfit_tf2_heads import ulmfit_rnn_encoder_native
 from corpus_feeder import tensor_shift
 PAD_ID = 1
-
-""" Evaluate perplexity of a causal language model in Tensorflow. """
 
 
 def calculate_ppl(*, restored_model, corpus_loader, needs_softmaxing=False):

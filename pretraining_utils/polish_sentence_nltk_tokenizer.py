@@ -1,10 +1,10 @@
-
-# from https://gist.github.com/ksopyla/f05fe2f48bbc9de895368b8a7863b5c3
-# import nltk
-
-# interactive download
-# nltk.download()
-# nltk.download('punkt')
+"""
+from https://gist.github.com/ksopyla/f05fe2f48bbc9de895368b8a7863b5c3
+import nltk
+interactive download
+nltk.download()
+nltk.download('punkt')
+"""
 
 extra_abbreviations = [
         "ps",
