@@ -1,5 +1,5 @@
-fastai==2.2.7
-nltk
+fastai==2.4
+nltk==3.6.2
 numpy
 pandas
 sentencepiece
@@ -7,5 +7,5 @@ sklearn
 tensorflow==2.4.1
 tensorflow_hub
 tensorflow_text==2.4.3
-torch=1.7.1
+torch==1.7.1
 tqdm
