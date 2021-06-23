@@ -149,16 +149,16 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     else:
         rpooler = ConcatPooler(name="ConcatPooler")(ulmfit_rnn_encoder.output)
 
+    drop_pooler = tf.keras.layers.Dropout(0.2)(rpooler)
     if with_batch_normalization is True:
-        drop1 = tf.keras.layers.Dropout(0.2)(rpooler)
-        bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(drop1)
-        fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
-        drop2 = tf.keras.layers.Dropout(0.1)(fc1)
-        bnorm2 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(drop2)
-        fc_final = tf.keras.layers.Dense(num_classes, activation=activation)(bnorm2)
+        bnorm_pooler = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(drop_pooler)
+        fc1 = tf.keras.layers.Dense(50, activation='linear')(bnorm_pooler)
+        bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(fc1)
+        relu1 = tf.keras.layers.ReLU()(bnorm1)
+        drop2 = tf.keras.layers.Dropout(0.1)(relu1)
+        fc_final = tf.keras.layers.Dense(num_classes, activation='softmax')(drop2)
     else:
-        drop1 = tf.keras.layers.Dropout(0.2)(rpooler)
-        fc1 = tf.keras.layers.Dense(50, activation='relu')(drop1)
+        fc1 = tf.keras.layers.Dense(50, activation='relu')(drop_pooler)
         drop2 = tf.keras.layers.Dropout(0.1)(fc1)
         fc_final = tf.keras.layers.Dense(num_classes, activation=activation)(drop2)
 
