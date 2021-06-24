@@ -1,5 +1,7 @@
 import sentencepiece as spm
+
 from ulmfit_tf2 import SPMNumericalizer
+
 
 class LMTokenizerFactory:
     """ Tokenizer factory

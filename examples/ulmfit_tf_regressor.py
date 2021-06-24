@@ -5,14 +5,18 @@ A regressor model outputs a real-number value whereas a classifier model outputs
 
 If `--normalize-labels` is passed, the gold values are rescaled to a range between 0 and 1
 """
-import os, argparse, readline
-import pandas as pd
+import argparse
+import os
+import readline
+
 import numpy as np
+import pandas as pd
 import tensorflow as tf
-from ulmfit_tf2_heads import ulmfit_regressor
-from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
+
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
+from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
+from ulmfit_tf2_heads import ulmfit_regressor
 
 
 def interactive_demo(args):

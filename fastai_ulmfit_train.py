@@ -5,15 +5,24 @@ This script roughly follows the original FastAI's tutorial (https://docs.fast.ai
 but we dispense with their preprocessing transforms. Instead, we provide an already numericalized corpus
 to the trainer object.
 """
-import os, argparse
-import numpy as np
-import subprocess
-import pickle
+import argparse
+import os
+from functools import partial
 
-from fastai.basics import *
-from fastai.callback.all import *
-from fastai.text.all import *
-from fastai_lm_utils import lr_or_default, get_fastai_tensors, save_as_keras
+from fastai.callback.fp16 import MixedPrecision
+from fastai.callback.rnn import rnn_cbs
+from fastai.callback.tracker import SaveModelCallback
+from fastai.callback.training import GradientClip
+from fastai.data.core import Datasets
+from fastai.learner import Learner
+from fastai.losses import CrossEntropyLossFlat
+from fastai.metrics import accuracy, Perplexity
+from fastai.optimizer import Adam
+from fastai.text.data import LMDataLoader
+from fastai.text.models import awd_lstm_lm_config, get_language_model, AWD_LSTM
+from tensorflow import add
+
+from fastai_lm_utils import get_fastai_tensors, lr_or_default
 
 
 def _run_pretraining(learner_obj, args):

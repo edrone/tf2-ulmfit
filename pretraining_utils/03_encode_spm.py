@@ -11,10 +11,10 @@ python -m pretraining_utils.03_encode_spm \
 """
 import argparse
 import logging
-import sentencepiece as spm
 import os
 import statistics
 
+import sentencepiece as spm
 
 logging.basicConfig(level=logging.INFO)
 

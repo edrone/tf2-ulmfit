@@ -8,8 +8,8 @@ python -m pretraining_utils.02_build_spm \
 """
 import argparse
 import logging
-import sentencepiece as spm
 
+import sentencepiece as spm
 
 logging.basicConfig(level=logging.INFO)
 

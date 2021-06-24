@@ -1,12 +1,15 @@
 """
 Evaluate perplexity of a causal language model in Tensorflow.
 """
+import argparse
+
 import numpy as np
 import tensorflow as tf
-import argparse
+
 from corpus_feeder import LMCorpusLoader
-from ulmfit_tf2_heads import ulmfit_rnn_encoder_native
 from corpus_feeder import tensor_shift
+from ulmfit_tf2_heads import ulmfit_rnn_encoder_native
+
 PAD_ID = 1
 
 

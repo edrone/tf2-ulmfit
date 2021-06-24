@@ -2,11 +2,12 @@
 Various ULMFit / FastAI related utils
 """
 import os
-import numpy as np
-from fastai.basics import *
-from fastai.callback.all import *
-from fastai.text.all import *
+
+from fastai.text.data import TensorText
+from fastcore.foundation import L
+
 from ulmfit_commons import file_len
+from ulmfit_tf2 import tf2_ulmfit_encoder
 
 
 def lr_or_default(lr, learner_obj):
@@ -48,10 +49,6 @@ def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file, fixed_seq_
     to the paper's implementation of ULMFit in FastAI.
 
     """
-
-    import tensorflow as tf
-    from ulmfit_tf2 import tf2_ulmfit_encoder
-
     spm_args = {
         'spm_model_file': spm_model_file,
         'add_bos': True,

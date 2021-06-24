@@ -1,12 +1,16 @@
-import os, argparse, readline
-import tensorflow as tf
+import argparse
+import os
+import readline
+
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from sklearn.metrics import classification_report
+
+from examples.ulmfit_tf_text_classifier import read_tsv_and_numericalize
+from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
 from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback, SPMNumericalizer
 from ulmfit_tf2_heads import ulmfit_last_hidden_state
-from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
-from .ulmfit_tf_text_classifier import read_tsv_and_numericalize
 
 
 def _restore_classifier_model_and_spm(args):

@@ -1,6 +1,7 @@
+from io import StringIO
+
 import attr
 import numpy as np
-from io import StringIO
 import tensorflow as tf
 
 PAD_ID=1

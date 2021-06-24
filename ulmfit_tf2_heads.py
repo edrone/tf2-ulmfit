@@ -1,5 +1,7 @@
+import tensorflow as tf
 import tensorflow_hub as hub
-from ulmfit_tf2 import *
+
+from ulmfit_tf2 import tf2_ulmfit_encoder, HubRaggedWrapper, TiedDense, RaggedConcatPooler, ConcatPooler
 
 
 def ulmfit_rnn_encoder_native(*, pretrained_weights=None, fixed_seq_len=None, spm_model_args,

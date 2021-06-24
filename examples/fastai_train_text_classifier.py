@@ -10,13 +10,32 @@ This implies that the pretrained language model must have been trained using the
 dictionary and no default pre/post tokenization rules.
 
 """
-import os, re, argparse
-import numpy as np
+import argparse
+import os
+import re
 from collections import OrderedDict
-import pickle
-from fastai.text.all import *
-from ulmfit_commons import read_labels, read_numericalize
+from functools import partial
+from operator import attrgetter
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn.functional as F
+from fastai.callback.fp16 import MixedPrecision
+from fastai.callback.rnn import rnn_cbs
+from fastai.callback.tracker import SaveModelCallback
+from fastai.callback.training import GradientClip
+from fastai.data.core import Datasets
+from fastai.learner import Learner
+from fastai.losses import CrossEntropyLossFlat
+from fastai.metrics import accuracy
+from fastai.optimizer import Adam
+from fastai.text.data import TensorText
+from fastai.text.models import get_text_classifier, AWD_LSTM
+from fastai.torch_core import get_model, TensorCategory
 from sklearn.metrics import classification_report
+
+from ulmfit_commons import read_labels, read_numericalize
 
 
 def restore_encoder(*, pth_file, text_classifier):

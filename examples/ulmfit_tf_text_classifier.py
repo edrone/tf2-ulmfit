@@ -1,12 +1,16 @@
-import os, argparse, readline
-import tensorflow as tf
+import argparse
+import os
+import readline
+
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from sklearn.metrics import classification_report
-from ulmfit_tf2 import STLRSchedule, OneCycleScheduler, PredictionProgressCallback, SPMNumericalizer, LRFinder
-from ulmfit_tf2_heads import ulmfit_document_classifier
+
 from ulmfit_commons import read_labels, read_numericalize, check_unbounded_training, print_training_info, \
     prepare_keras_callbacks
+from ulmfit_tf2 import STLRSchedule, OneCycleScheduler, PredictionProgressCallback, SPMNumericalizer, LRFinder
+from ulmfit_tf2_heads import ulmfit_document_classifier
 
 
 def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):

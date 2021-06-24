@@ -1,5 +1,14 @@
+import os
+import re
 import subprocess
-import os, sys, re
+import sys
+
+import nltk
+import pandas as pd
+import sentencepiece as spm
+
+from ulmfit_tf2 import AWDCallback, LRFinder
+
 
 def file_len(fname):
     """ Nothing beats wc -l """
@@ -17,9 +26,6 @@ def read_labels(fname):
 
 def read_numericalize(*, input_file, sep='\t', spm_model_file, label_map=None, max_seq_len=None, fixed_seq_len=None,
                       x_col, y_col, sentence_tokenize=False, cut_off_final_token=False):
-    import pandas as pd
-    import sentencepiece as spm
-    import nltk
     df = pd.read_csv(input_file, sep=sep)
     if label_map is not None:
         df[y_col] = df[y_col].astype(str)
@@ -57,13 +63,9 @@ def check_unbounded_training(fixed_seq_len, max_seq_len):
 
 def prepare_keras_callbacks(*, args, model, hub_object,
                             monitor_metric='val_sparse_categorical_accuracy'):
+    """Build a list of Keras callbacks according to command-line parameters parsed into `args`."""
+    import tensorflow as tf  # tensorflow global import conflicts with fastai
 
-    """
-    Build a list of Keras callbacks according to command-line parameters parsed into `args`.
-
-    """
-    import tensorflow as tf
-    from ulmfit_tf2 import AWDCallback, LRFinder, OneCycleScheduler
     callbacks = []
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=model if hub_object is None else None,

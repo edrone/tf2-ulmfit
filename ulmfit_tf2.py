@@ -1,11 +1,12 @@
 import math
+
+import matplotlib.pyplot as plt  # for LRFinder
 import numpy as np
 import tensorflow as tf
 import tensorflow_text as text
-import matplotlib.pyplot as plt # for LRFinder
-from tqdm import trange
-from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import math_ops
+from tqdm import trange
 
 
 def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_args=None, vocab_size=None):

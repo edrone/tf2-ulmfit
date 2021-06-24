@@ -9,11 +9,13 @@ Note: several preprocessing functions in this file are not used, but we left the
 in case you have a corpus that needs more aggressive cleaning.
 """
 import argparse
-import unicodedata
 import logging
-import nltk
 import re
-from .polish_sentence_nltk_tokenizer import extra_abbreviations
+import unicodedata
+
+import nltk
+
+from pretraining_utils.polish_sentence_nltk_tokenizer import extra_abbreviations
 
 logging.basicConfig(level=logging.INFO)
 

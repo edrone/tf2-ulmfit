@@ -1,9 +1,15 @@
-import os, argparse, readline
+import argparse
 import json
-from ulmfit_tf2_heads import *
-from ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
+import os
+import readline
+
+import tensorflow as tf
+
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import check_unbounded_training
+from ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
+from ulmfit_tf2_heads import ulmfit_sequence_tagger
+
 
 # DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'}
 

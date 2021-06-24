@@ -11,15 +11,15 @@ python -m modelling_scripts.lstm_with_wordpieces.04_demo \
           --add-bos
 """
 import argparse
-import logging
-import pickle
-import tensorflow as tf
-import numpy as np
 import heapq
+import logging
 import readline
-import sentencepiece as spm
-from ..ulmfit_tf2_heads import ulmfit_rnn_encoder_native, ulmfit_rnn_encoder_hub
 
+import numpy as np
+import sentencepiece as spm
+import tensorflow as tf
+
+from ulmfit_tf2_heads import ulmfit_rnn_encoder_native, ulmfit_rnn_encoder_hub
 
 UNK_ID=0; PAD_ID=1; BOS_ID=2; EOS_ID=3
 logging.basicConfig(level=logging.INFO)
