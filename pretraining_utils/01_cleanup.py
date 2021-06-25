@@ -148,6 +148,21 @@ def attempt_split_uppercase(text, min_upper=4, recase=True, last_upper_goes_to='
         raise ValueError(f"Unknown operation on the boundary uppercase letter: {last_upper_goes_to}")
     return re.sub(regexp, tfm, text)
 
+
+def attempt_split_hill(text, min_lower_left=4, min_lower_right=3):
+    """ Splits phrases that were accidentally merged during crawling based on the letter case:
+
+         Ex) zapasMydła => zapasMydła
+    """
+    regexp = re.compile("([a-ząęśćńźżół]{" + str(min_lower_left) + \
+                        ",})([A-ZĄĘŚĆŃŹŻÓŁ])([a-ząęśćńźżół]{" + str(min_lower_right) + ",})")
+    tfm = lambda p: p.group(1) + " " + p.group(2) + p.group(3)
+    is_match = re.search(regexp, text)
+    if is_match:
+        print(f"{is_match}")
+    return re.sub(regexp, tfm, text)
+
+
 def main(args):
     logging.info(f"Reading input file {args['input_text']}")
     with open(args['input_text'], 'r', encoding='utf-8') as f:
