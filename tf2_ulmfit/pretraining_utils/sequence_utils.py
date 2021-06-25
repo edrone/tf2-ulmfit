@@ -1,7 +1,8 @@
 import argparse
 import json
-import tensorflow as tf
-from awd_lstm_tensorflow2.ulmfit_tf2_heads import SPMNumericalizer
+
+from tf2_ulmfit.ulmfit_tf2 import SPMNumericalizer
+
 
 def pretty_print_tagged_sequences(subword_pieces, labels, intents, limit=5):
     for i in range(len(subword_pieces)):

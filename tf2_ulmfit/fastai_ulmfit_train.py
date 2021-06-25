@@ -22,7 +22,7 @@ from fastai.text.data import LMDataLoader
 from fastai.text.models import awd_lstm_lm_config, get_language_model, AWD_LSTM
 from tensorflow import add
 
-from fastai_lm_utils import get_fastai_tensors, lr_or_default
+from tf2_ulmfit.fastai_lm_utils import get_fastai_tensors, lr_or_default
 
 
 def _run_pretraining(learner_obj, args):

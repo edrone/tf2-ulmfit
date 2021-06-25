@@ -7,7 +7,7 @@ import nltk
 import pandas as pd
 import sentencepiece as spm
 
-from ulmfit_tf2 import AWDCallback, LRFinder
+from tf2_ulmfit.ulmfit_tf2 import AWDCallback, LRFinder
 
 
 def file_len(fname):
