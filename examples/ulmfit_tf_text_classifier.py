@@ -115,7 +115,7 @@ def main(args):
     if args.get('lr_finder') is None and args.get('lr_scheduler') == 'stlr':
         scheduler = STLRSchedule(args['lr'], num_steps)
     else:
-        scheduler = 0.001
+        scheduler = args['lr']
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
     callbacks = prepare_keras_callbacks(args=args, model=model, hub_object=hub_object,

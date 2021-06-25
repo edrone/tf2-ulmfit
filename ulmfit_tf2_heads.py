@@ -154,15 +154,16 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     drop_pooler = tf.keras.layers.Dropout(0.2)(rpooler)
     if with_batch_normalization is True:
         bnorm_pooler = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(drop_pooler)
-        fc1 = tf.keras.layers.Dense(50, activation='linear')(bnorm_pooler)
-        bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(fc1)
-        relu1 = tf.keras.layers.ReLU()(bnorm1)
-        drop2 = tf.keras.layers.Dropout(0.1)(relu1)
-        fc_final = tf.keras.layers.Dense(num_classes, activation='softmax')(drop2)
+        bnorm_drop = tf.keras.layers.Dropout(0.1)(bnorm_pooler)
+        fc1 = tf.keras.layers.Dense(50, activation='linear', use_bias=False)(bnorm_drop)
+        relu1 = tf.keras.layers.ReLU()(fc1)
+        bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(relu1)
+        drop2 = tf.keras.layers.Dropout(0.1)(bnorm1)
+        fc_final = tf.keras.layers.Dense(num_classes, use_bias=False, activation='softmax')(drop2)
     else:
-        fc1 = tf.keras.layers.Dense(50, activation='relu')(drop_pooler)
+        fc1 = tf.keras.layers.Dense(50, activation='relu', use_bias=False)(drop_pooler)
         drop2 = tf.keras.layers.Dropout(0.1)(fc1)
-        fc_final = tf.keras.layers.Dense(num_classes, activation=activation)(drop2)
+        fc_final = tf.keras.layers.Dense(num_classes, activation=activation, use_bias=False)(drop2)
 
     document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=fc_final)
     return document_classifier_model, hub_object

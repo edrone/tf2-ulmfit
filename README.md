@@ -84,9 +84,7 @@ As you can see, the `SPMNumericalizer` object can even add BOS/EOS markers to ea
 
 ### 3.2. Fixed-length vs variable-length sequences
 
-In the previous section you see that sequences are numericalized into RaggedTensors containing variable length sequences. All the scripts, classes and functions in this repository operate on RaggedTensors by default. We also assumed this input to be used throughout this guide and the SavedModel modules available from Tensorflow Hub.
-
-**However, with RaggedTensors you cannot currently use Nvidia's CuDNN kernels for training LSTM networks** (https://github.com/tensorflow/tensorflow/issues/48838). This slows down your training on a GPU by ~5 to 7 times in comparison with the optimized implementation. For efficient training, you still need to set a fixed sequence length and add padding:
+In the previous section you see that sequences are numericalized into RaggedTensors containing variable length sequences. All the scripts, classes and functions in this repository operate on RaggedTensors by default. We also assumed this input to be used in the SavedModel modules available from Tensorflow Hub, **however this convenience also carries a very significant drawback. Specifically, with RaggedTensors you cannot currently use Nvidia's CuDNN kernels for training LSTM networks (https://github.com/tensorflow/tensorflow/issues/48838). This slows down your training on a GPU by ~5 to 7 times in comparison with the optimized implementation. For efficient training, you still need to set a fixed sequence length and add padding**:
 
 ```
 spm_processor = SPMNumericalizer(name='spm_layer',
@@ -104,7 +102,7 @@ tf.Tensor(
       1     1     1     1     1     1     1     1     1     1]], shape=(1, 70), dtype=int32)
 ```
 
-If you use the **`fixed_seq_len`** parameter in `SPMNumericalizer`, you should also ensure that any downstream layer consumes tensors with compatible shapes.  Specifically, the encoder (see next section) needs to be built with this parameter as well. The demo scripts in the [examples](examples/) directory can also be run with a `--fixed-seq-len` argument.
+If you use the **`fixed_seq_len`** parameter in `SPMNumericalizer`, you should also ensure that any downstream layer consumes tensors with compatible shapes.  Specifically, the encoder (see next section) needs to be built with this parameter as well. The demo scripts in the [examples](examples/) directory can also be run with a `--fixed-seq-len` argument and this guide shows how to use the CUDA-optimized versions.
 
 
 
@@ -117,8 +115,11 @@ import tensorflow as tf
 from ulmfit_tf2 import tf2_ulmfit_encoder
 spm_args = {'spm_model_file': 'enwiki100-cased-sp35k.model',
             'add_bos': True,
-            'add_eos': True}
-lm_num, encoder_num, mask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_args=spm_args, flatten_ragged_outputs=False)
+            'add_eos': True,
+            'fixed_seq_len': 70}
+lm_num, encoder_num, mask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_args=spm_args,
+                                                                       fixed_seq_len=70)
+encoder_num.summary()
 ```
 
 Note that this function returns four objects (all of them instances of `tf.keras.Model`) with **`encoder_num`** being the actual encoder. You can view its structure just like any other Keras model by calling the `summary` method:
@@ -128,25 +129,25 @@ Model: "model_2"
 _________________________________________________________________
 Layer (type)                 Output Shape              Param #   
 =================================================================
-ragged_numericalized_input ( [(None, None)]            0         
+numericalized_input (InputLa [(None, 70)]              0         
 _________________________________________________________________
-ulmfit_embeds (CustomMaskabl (None, None, 400)         14000000  
+ulmfit_embeds (CustomMaskabl (None, 70, 400)           14000000  
 _________________________________________________________________
-ragged_emb_dropout (RaggedEm (None, None, 400)         0         
+emb_dropout (EmbeddingDropou (None, 70, 400)           0         
 _________________________________________________________________
-ragged_inp_dropout (RaggedSp (None, None, 400)         0         
+inp_dropout (SpatialDropout1 (None, 70, 400)           0         
 _________________________________________________________________
-AWD_RNN1 (RNN)               (None, None, 1152)        7156224   
+AWD_RNN1 (LSTM)              (None, 70, 1152)          7156224   
 _________________________________________________________________
-ragged_rnn_drop1 (RaggedSpat (None, None, 1152)        0         
+rnn_drop1 (SpatialDropout1D) (None, 70, 1152)          0         
 _________________________________________________________________
-AWD_RNN2 (RNN)               (None, None, 1152)        10621440  
+AWD_RNN2 (LSTM)              (None, 70, 1152)          10621440  
 _________________________________________________________________
-ragged_rnn_drop2 (RaggedSpat (None, None, 1152)        0         
+rnn_drop2 (SpatialDropout1D) (None, 70, 1152)          0         
 _________________________________________________________________
-AWD_RNN3 (RNN)               (None, None, 400)         2484800   
+AWD_RNN3 (LSTM)              (None, 70, 400)           2484800   
 _________________________________________________________________
-ragged_rnn_drop3 (RaggedSpat (None, None, 400)         0         
+rnn_drop3 (SpatialDropout1D) (None, 70, 400)           0         
 =================================================================
 Total params: 34,262,464
 Trainable params: 34,262,464
@@ -160,33 +161,25 @@ Let's now see how we can get the sentence representation. First, we need some te
 ```
 text_ids = spm_encoder_model(tf.constant(['Cat sat on a mat', 'And spat'], dtype=tf.string))
 vectors = encoder_num(text_ids)
-print(vectors.shape)      # (2, None, 400)
-print(vectors[0].shape)   # (7, 400)
-print(vectors[0].shape)   # (5, 400)
+print(vectors.shape)      # (2, 70, 400)
 ```
 
-As you can see, the encoder outputs a RaggedTensor. There are two sentences in our "batch", so the zeroeth dimension is 2. Sequences are of different lengths (seven and five subwords, including BOS/EOS markers) so the first dimension is `None`. Finally, each output hidden state is represented by 400 floats, so the third dimension is 400.
+There are two sentences in our "batch", so the zeroeth dimension is 2. Sequences are padded to 70 tokens, hence the first dimension is 70. Finally, each output hidden state is represented by 400 floats, so the third dimension is 400 (if the encoder was instantiated with `fixed_seq_len=None`, the output would be a `RaggedTensor` of shape `(2, None, 400)`).
 
 The other two objects returned by `tf2_ulmfit_encoder` are:
 
 * **`lm_num`** - the encoder with a language modelling head on top. We have followed the ULMFiT paper here and implemented **weight tying** - the LM head's weights (but not biases) are tied to the embedding layer. You will probably only want this for the next-token prediction demo.
-* **`mask_num`** - returns a mask tensor where `True` means a normal token and `False` means padding. This is only relevant in custom models and for Keras mask propagation between layers.
+* **`mask_num`** - returns a mask tensor where `True` means a normal token and `False` means padding. Note that the encoder layers already support mask propagation (just as a reminder: the padding token in ULMFiT is 1, not 0) via the Keras API. You can verify this by comparing the output of `mask_num(text_ids)` to `vectors._keras_mask`. The "masker model" is not used anywhere in the example scripts, but might be quite useful if you intend to build custom SavedModels..
 
 You now have an ULMFiT encoder model with randomly initialized weights. Sometimes this is sufficient for very simple tasks, but generally you will probably want to restore the pretrained weights. This can be done using standard Keras function `load_weights` in the same way as you do with all other Keras models. You just need to provide a path to the directory containing the `checkpoint` and the model name (the `.expect_partial()` bit tells Keras to restore as much as it can from checkpoint and ignore the rest. This quenches some warnings about the optimizer state.):
 
 ```encoder_num.load_weights('keras_weights/enwiki100_20epochs_35k_cased').expect_partial()```
 
-Extra notes:
+#### Extra note - restoring a SavedModel
 
 * It is also possible to restore the encoder from a local copy of a SavedModel directory. This is a little more involved and you will lose the information about all those prettily printed layers, but see the function `ulmfit_rnn_encoder_hub` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) if you are interested in this use case.
 
-* To instantiate a fixed sequence length encoder with padding use:
-
-  `lm_num, encoder_num, mask_num, spm_encoder_model = tf2_ulmfit_encoder(spm_args=spm_args, fixed_seq_len=100)`
-
-  then restore Keras weighs normally.
-
-
+  
 
 ## 4. How to use ULMFiT for Tensorflow with some typical NLP tasks
 
@@ -196,32 +189,27 @@ In the [examples](examples) directory we are providing training scripts which il
 
 The `main` method of each example script accepts a single parameter called `args` which is basically a configuration dictionary created from arguments passed in the command line. Here is a list of the most common arguments you will encounter:
 
-*Data*:
-
-* `--train-tsv / -- test-tsv ` - paths to source files containing training and test/validation data. For classification/regression tasks the input format is a TSV file with a header. For sequence tagging see below.
-* `--data-column-name` - name of the column with input data
-* `--gold-column-name` - name of the column with labels
-* `--label-map` - path to a text (classifier) or json (sequence tagger) file containing labels.
-
-*Tokenization and numericalization*:
-
-* `--spm-model-file` - path to a Sentencepiece .model file
-* `--fixed-seq-len` - if set, input data will be truncated or padded to this number of tokens. If unset, variable-length sequences and RaggedTensors will be used
-* `--max-seq-len` - maximal number of tokens in a sequence. This should generally be set to some sensible value for your data, even if you use RaggedTensors, because one maliciously long sequence can cause an OOM error in the middle of training.
-
-*Restoring model weights and saving the finetuned version*:
-
-* `--model-weights-cp` - path to a local directory where the pretrained encoder weights are saved
-* `--model-type` - what to expect in the directory given in the previous parameter. If set to `from_cp`, the script will expect Keras weights (in this case, provide the checkpoint name as well). If set to `from_hub`, it will expect SavedModel files.
-* `--out-path` - where to save the model's weights after the training completes.
-
-*Training*:
-
-* `--num-epochs` - number of epochs
-* `--batch-size` - batch size
-* `--lr` - peak learning rate for the slanted triangular learning rate scheduler
-* `--awd-off` - disables AWD regularization
-* `--save-best` - if set, the training script will save the model with the best accuracy score on the test/validation set
+* Data:
+  * `--train-tsv / -- test-tsv ` - paths to source files containing training and test/validation data. For classification/regression tasks the input format is a TSV file with a header. For sequence tagging see below.
+  * `--data-column-name` - name of the column with input data
+  * `--gold-column-name` - name of the column with labels
+  * `--label-map` - path to a text (classifier) or json (sequence tagger) file containing labels.
+* Tokenization and numericalization:
+  * `--spm-model-file` - path to a Sentencepiece .model file
+  * `--fixed-seq-len` - if set, input data will be truncated or padded to this number of tokens. If unset, variable-length sequences and RaggedTensors will be used
+  * `--max-seq-len` - maximal number of tokens in a sequence. This should generally be set to some sensible value for your data, even if you use RaggedTensors, because one maliciously long sequence can cause an OOM error in the middle of training.
+* Restoring model weights and saving the finetuned version:
+  * `--model-weights-cp` - path to a local directory where the pretrained encoder weights are saved
+  * `--model-type` - what to expect in the directory given in the previous parameter. If set to `from_cp`, the script will expect Keras weights (in this case, provide the checkpoint name as well). If set to `from_hub`, it will expect SavedModel files.
+  * `--out-path` - where to save the model's weights after the training completes.
+* Training:
+  * `--num-epochs` - number of epochs
+  * `--batch-size` - batch size
+  * `--lr` - peak learning rate for the slanted triangular learning rate scheduler
+  * `--lr-scheduler` - `stlr`for slanted triangular learning rates or `1cycle` for one-cycle policy
+  * `--lr-finder [NUM_STEPS]` - will run a learning rate finder for NUM_STEPS, then display a chart showing how the LR changes wrt loss
+  * `--awd-off` - disables AWD regularization
+  * `--save-best` - if set, the training script will save the model with the best accuracy score on the test/validation set
 
 
 
@@ -233,7 +221,7 @@ This script attempts to replicate the document classifier architecture from the 
 * the average-pooled sentence vector
 * the encoder's last hidden state
 
-This representation is then passed through a 50-dimensional Dense layer. The last layer has a softmax activation and many neurons as there are classes. One issue we encountered here is batch normalization, which is included in the original paper, but which we were not able to use in Tensorflow. When adding BatchNorm to the model we found that we could not get it to converge on any validation set, so it is disabled in our scripts.
+This representation is then passed through a 50-dimensional Dense layer. The last layer has a softmax activation and many neurons as there are classes. One issue we encountered here is batch normalization, which is included in the original paper and the FastAI text classifier model, but which we were not able to use in Tensorflow. When adding BatchNorm to the model we found that we could not get it to converge on the validation set, so it is disabled in our scripts. If you nevertheless wish to enable it, pass the `--with-batch-norm` flag (and do let us know what we're doing wrong!).
 
 Example invocation:
 
@@ -246,10 +234,11 @@ python -m examples.ulmfit_tf_text_classifier \
           --model-weights-cp keras_weights/enwiki100_20epochs_35k_uncased \
           --model-type from_cp \
           --spm-model-file enwiki100-uncased-sp35k.model \
-          --max-seq-len 300 \
+          --fixed-seq-len 300 \
           --num-epochs 12 \
-          --batch-size 32 \
-          --lr 0.007 \
+          --batch-size 16 \
+          --lr 0.0025 \
+          --lr-scheduler stlr \
           --out-path ./sent200trained \
           --save-best
 ```
@@ -262,7 +251,7 @@ python -m examples.ulmfit_tf_text_classifier \
           --model-weights-cp sent200trained/best_checkpoint/best \
           --model-type from_cp \
           --spm-model-file enwiki100-uncased-sp35k.model \
-          --max-seq-len 300 \
+          --fixed-seq-len 300 \
           --interactive
 
 Paste a document to classify: this is the most depressing film i've ever seen . so boring i left before it finished .
@@ -301,9 +290,11 @@ python -m examples.ulmfit_tf_regressor \
           --model-weights-cp keras_weights/enwiki100_20epochs_35k_uncased \
           --model-type from_cp \
           --spm-model-file spm_model/enwiki100-uncased-sp35k.model \
-          --max-seq-len 350 \
-          --batch-size 32 \
+          --fixed-seq-len 350 \
+          --batch-size 16 \
           --num-epochs 12 \
+          --lr 0.0025 \
+          --lr-scheduler stlr \
           --loss-fn mse \
           --out-path ./hotel_regressor \
           --save-best
@@ -318,15 +309,15 @@ python -m examples.ulmfit_tf_regressor \
           --model-weights-cp hotel_regressor/best_checkpoint/best \
           --model-type from_cp \
           --spm-model-file spm_model/enwiki100-toks-sp35k-uncased.model \
-          --max-seq-len 350 \
+          --fixed-seq-len 350 \
           --interactive
 
 ...
 
-Paste a document to classify using a regressor: hotel no security stole laptop avoid like plague
-Score: = [2.5436585]
+Paste a document to classify using a regressor: horrible hotel no security stole laptop avoid like plague
+Score: = [2.198639]
 Paste a document to classify using a regressor: excellent hotel stay wonderful staff
-Score: = [6.9718037]
+Score: = [5.979812]
 ```
 
 
@@ -334,10 +325,10 @@ Score: = [6.9718037]
 Compare this to a model trained with `--normalize-labels`:
 
 ```
-Paste a document to classify using a regressor: hotel no security stole laptop avoid like plague
-Score: = [0.12547399]
+Paste a document to classify using a regressor: horrible hotel no security stole laptop avoid like plague
+Score: = [0.00999162]
 Paste a document to classify using a regressor: excellent hotel stay wonderful staff
-Score: = [1.8454201]
+Score: = [1.145164]
 ```
 
 
@@ -421,6 +412,7 @@ python -m examples.ulmfit_tf_seqtagger \
           --model-type from_cp \
           --batch-size 32 \
           --num-epochs 5 \
+          --fixed-seq-len 350 \
           --out-path ./conll_tagger
 ```
 

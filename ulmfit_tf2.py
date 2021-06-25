@@ -771,7 +771,7 @@ class RaggedConcatPooler(tf.keras.layers.Layer):
         self.inputs_are_flattened = inputs_are_flattened # set this to True if using the TFHub version
 
     def build(self, input_shape):
-        print(">>>> INSIDE BUILD / ConcatPooler <<<< ")
+        print(">>>> INSIDE BUILD / RaggedConcatPooler <<<< ")
 
     def call(self, inputs, training=None): # inputs is a ragged tensor
         if self.inputs_are_flattened:

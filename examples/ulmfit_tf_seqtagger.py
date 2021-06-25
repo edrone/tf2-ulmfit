@@ -6,8 +6,8 @@ import readline
 import tensorflow as tf
 
 from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import check_unbounded_training
-from ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
+from ulmfit_commons import check_unbounded_training, print_training_info, prepare_keras_callbacks
+from ulmfit_tf2 import STLRSchedule, OneCycleScheduler, RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
 from ulmfit_tf2_heads import ulmfit_sequence_tagger
 
 
@@ -112,9 +112,11 @@ def main(args):
     spm_args = {'spm_model_file': args['spm_model_file'],
                 'add_bos': False,
                 'add_eos': False,
-                'lumped_sents_separator': '[SEP]'}
+                'lumped_sents_separator': '[SEP]',
+                'fixed_seq_len': args.get('fixed_seq_len')}
     spmproc = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm',
                                                tokenizer_file=args['spm_model_file'],
+                                               fixed_seq_len=args.get('fixed_seq_len'),
                                                add_bos=False, add_eos=False)  # bos / eos will need to be added manually
     tokenized, numericalized, labels = tokenize_and_align_labels(spmproc, train_jsonl, args.get('max_seq_len'))
     print(f"Generating {'ragged' if args.get('fixed_seq_len') is None else 'dense'} tensor inputs...")
@@ -134,11 +136,22 @@ def main(args):
                                                        spm_model_args=spm_args,
                                                        fixed_seq_len=args.get('fixed_seq_len'),
                                                        num_classes=len(label_map))
-    ulmfit_tagger.summary()
-    print(f"Shapes - sequence inputs: {sequence_inputs.shape}, labels: {subword_labels.shape}")
-    optimizer = tf.keras.optimizers.Adam()
+
+    num_steps = (sequence_inputs.shape[0] // args['batch_size']) * args['num_epochs']
+    print_training_info(args=args, x_train=sequence_inputs, y_train=subword_labels)
+    if args.get('lr_scheduler') == 'stlr':
+        scheduler = STLRSchedule(args['lr'], num_steps)
+    else:
+        scheduler = args['lr']
+    optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler)
     loss_fn = RaggedSparseCategoricalCrossEntropy() if args.get('fixed_seq_len') is None \
                                                     else tf.keras.losses.SparseCategoricalCrossentropy()
+    callbacks = prepare_keras_callbacks(args=args, model=ulmfit_tagger, hub_object=hub_object,
+                                        monitor_metric='sparse_categorical_accuracy')
+    if args.get('lr_scheduler') == '1cycle':
+        print("Fitting with one-cycle")
+        callbacks.append(OneCycleScheduler(steps=num_steps, lr_max=args['lr']))
+    print(f"Shapes - sequence inputs: {sequence_inputs.shape}, labels: {subword_labels.shape}")
 
     # ##### This works only with fixed-length sequences:
     # ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
@@ -155,21 +168,24 @@ def main(args):
     ##### For RaggedTensors and variable-length sequences we have to use the GradientTape ########
     os.makedirs(args['out_path'], exist_ok=True)
     save_path = os.path.join(args['out_path'], 'tagger')
-    ulmfit_tagger.compile(optimizer='adam', loss=loss_fn, metrics=['sparse_categorical_accuracy'])
+
+    ulmfit_tagger.summary()
+    ulmfit_tagger.compile(optimizer=optimizer_fn, loss=loss_fn, metrics=['sparse_categorical_accuracy'])
     batch_size = args['batch_size']
     steps_per_epoch = sequence_inputs.shape[0] // batch_size
+    total_steps = 0
     for epoch in range(args['num_epochs']):
         for step in range(steps_per_epoch - 1):
-            if step % 25 == 0:
+            if total_steps % args['save_every'] == 0:
                 print("Saving weights...")
                 ulmfit_tagger.save_weights(save_path)
             train_step(model=ulmfit_tagger,
                        hub_object=hub_object,
-                       loss_fn=loss_fn, optimizer=optimizer,
+                       loss_fn=loss_fn, optimizer=optimizer_fn,
                        x=sequence_inputs[(step*batch_size):(step+1)*batch_size],
                        y=subword_labels[(step*batch_size):(step+1)*batch_size],
                        step_info=(step, steps_per_epoch))
-    return ulmfit_tagger, sequence_inputs, subword_labels, loss_fn, optimizer
+            total_steps += 1
 
 
 if __name__ == "__main__":
@@ -190,8 +206,12 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
+    argz.add_argument("--lr", default=0.001, type=float, help="Learning rate")
+    argz.add_argument("--lr-scheduler", choices=['stlr', '1cycle', 'constant'], default='constant', help="Learning rate"
+                      "scheduler (slanted triangular, one-cycle or constant LR)")
     argz.add_argument("--interactive", action='store_true', help="Run the script in interactive mode")
-    argz.add_argument("--out-path", default="ulmfit_tagger", help="Training: Checkpoint name to save every 25 steps")
+    argz.add_argument("--save-every", default=25, type=int, help="How often to save a checkpoint (number of steps)")
+    argz.add_argument("--out-path", default="ulmfit_tagger", help="Training: Checkpoint name to save every N steps")
     argz = vars(argz.parse_args())
     if all([argz.get('max_seq_len') and argz.get('fixed_seq_len')]):
         print("You can use either `max_seq_len` with RaggedTensors to restrict the maximum sequence length, or"

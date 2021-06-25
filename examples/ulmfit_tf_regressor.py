@@ -15,16 +15,17 @@ import tensorflow as tf
 
 from lm_tokenizers import LMTokenizerFactory
 from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
-from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
+from ulmfit_tf2 import STLRSchedule, OneCycleScheduler, PredictionProgressCallback
 from ulmfit_tf2_heads import ulmfit_regressor
 
 
 def interactive_demo(args):
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
-    spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text', \
-                                               tokenizer_file=args['spm_model_file'], \
-                                               add_bos=True, add_eos=True)
+    spm_encoder = LMTokenizerFactory.get_tokenizer(tokenizer_type='spm_tf_text',
+                                                   tokenizer_file=args['spm_model_file'],
+                                                   fixed_seq_len=args.get('fixed_seq_len'),
+                                                   add_bos=True, add_eos=True)
     ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
                                                           pretrained_encoder_weights=None,
                                                           spm_model_args=spm_args,
@@ -118,13 +119,19 @@ def main(args):
     ulmfit_regressor_model.summary()
     num_steps = (x_train.shape[0] // args['batch_size']) * args['num_epochs']
     print_training_info(args=args, x_train=x_train, y_train=y_train)
-    scheduler = STLRSchedule(args['lr'], num_steps)
+    if args.get('lr_scheduler') == 'stlr':
+        scheduler = STLRSchedule(args['lr'], num_steps)
+    else:
+        scheduler = args['lr']
     optimizer_fn = tf.keras.optimizers.Adam(learning_rate=scheduler, beta_1=0.7, beta_2=0.99)
     loss_fn, loss_metric = get_keras_regression_objects(args['loss_fn'])
     monitor_metric = 'mean_absolute_error' if args['loss_fn'] == 'mae' else 'mean_squared_error'
     callbacks = prepare_keras_callbacks(args=args, model=ulmfit_regressor_model, hub_object=hub_object,
                                         monitor_metric=f'val_{monitor_metric}' if validation_data is not None \
                                         else monitor_metric)
+    if args.get('lr_scheduler') == '1cycle':
+        print("Fitting with one-cycle")
+        callbacks.append(OneCycleScheduler(steps=num_steps, lr_max=args['lr']))
     ulmfit_regressor_model.compile(optimizer=optimizer_fn,
                                    loss=loss_fn,
                                    metrics=[loss_metric])
@@ -156,7 +163,9 @@ if __name__ == "__main__":
     argz.add_argument('--max-seq-len', required=False, type=int, help="Maximum sequence length. Only makes sense with RaggedTensors.")
     argz.add_argument("--batch-size", default=32, type=int, help="Batch size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs")
-    argz.add_argument("--lr", default=0.01, type=float, help="Learning rate")
+    argz.add_argument("--lr", default=0.001, type=float, help="Learning rate")
+    argz.add_argument("--lr-scheduler", choices=['stlr', '1cycle'], default='stlr', help="Learning rate"
+                      "scheduler (slanted triangular or one-cycle)")
     argz.add_argument("--loss-fn", default='mae', choices=['mae', 'mse'], help="Loss function for regression (MAE or MSE).")
     argz.add_argument("--with-batch-normalization", action='store_true', required=False, help="Use batch normalization (looks broken)")
     argz.add_argument("--normalize-labels", action='store_true', required=False, help="Transform the Y values to be between 0 and max-1.")

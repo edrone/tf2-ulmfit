@@ -19,20 +19,7 @@ from operator import attrgetter
 
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn.functional as F
-from fastai.callback.fp16 import MixedPrecision
-from fastai.callback.rnn import rnn_cbs
-from fastai.callback.tracker import SaveModelCallback
-from fastai.callback.training import GradientClip
-from fastai.data.core import Datasets
-from fastai.learner import Learner
-from fastai.losses import CrossEntropyLossFlat
-from fastai.metrics import accuracy
-from fastai.optimizer import Adam
-from fastai.text.data import TensorText
-from fastai.text.models import get_text_classifier, AWD_LSTM
-from fastai.torch_core import get_model, TensorCategory
+from fastai.text.all import *
 from sklearn.metrics import classification_report
 
 from ulmfit_commons import read_labels, read_numericalize
