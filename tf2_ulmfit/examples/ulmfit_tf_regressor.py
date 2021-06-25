@@ -13,10 +13,10 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
-from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
-from ulmfit_tf2_heads import ulmfit_regressor
+from tf2_ulmfit.lm_tokenizers import LMTokenizerFactory
+from tf2_ulmfit.ulmfit_commons import read_numericalize, check_unbounded_training, print_training_info, prepare_keras_callbacks
+from tf2_ulmfit.ulmfit_tf2 import STLRSchedule, PredictionProgressCallback
+from tf2_ulmfit.ulmfit_tf2_heads import ulmfit_regressor
 
 
 def interactive_demo(args):

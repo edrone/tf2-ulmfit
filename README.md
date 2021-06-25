@@ -104,7 +104,7 @@ tf.Tensor(
       1     1     1     1     1     1     1     1     1     1]], shape=(1, 70), dtype=int32)
 ```
 
-If you use the **`fixed_seq_len`** parameter in `SPMNumericalizer`, you should also ensure that any downstream layer consumes tensors with compatible shapes.  Specifically, the encoder (see next section) needs to be built with this parameter as well. The demo scripts in the [examples](examples/) directory can also be run with a `--fixed-seq-len` argument.
+If you use the **`fixed_seq_len`** parameter in `SPMNumericalizer`, you should also ensure that any downstream layer consumes tensors with compatible shapes.  Specifically, the encoder (see next section) needs to be built with this parameter as well. The demo scripts in the [examples](tf2_ulmfit/examples/) directory can also be run with a `--fixed-seq-len` argument.
 
 
 
@@ -178,7 +178,7 @@ You now have an ULMFiT encoder model with randomly initialized weights. Sometime
 
 Extra notes:
 
-* It is also possible to restore the encoder from a local copy of a SavedModel directory. This is a little more involved and you will lose the information about all those prettily printed layers, but see the function `ulmfit_rnn_encoder_hub` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) if you are interested in this use case.
+* It is also possible to restore the encoder from a local copy of a SavedModel directory. This is a little more involved and you will lose the information about all those prettily printed layers, but see the function `ulmfit_rnn_encoder_hub` in [ulmfit_tf2_heads.py](tf2_ulmfit/ulmfit_tf2_heads.py) if you are interested in this use case.
 
 * To instantiate a fixed sequence length encoder with padding use:
 
@@ -190,7 +190,7 @@ Extra notes:
 
 ## 4. How to use ULMFiT for Tensorflow with some typical NLP tasks
 
-In the [examples](examples) directory we are providing training scripts which illustrate how the ULMFiT encoder can be used for a variety of downstream tasks. All the scripts are executable from the command line as Python modules (`python -m examples.ulmfit_tf_text_classifer --help`). After training models on custom data, you can run these scripts with the `--interactive` switch which allows you to type text in the console and display predictions.
+In the [examples](tf2_ulmfit/examples) directory we are providing training scripts which illustrate how the ULMFiT encoder can be used for a variety of downstream tasks. All the scripts are executable from the command line as Python modules (`python -m examples.ulmfit_tf_text_classifer --help`). After training models on custom data, you can run these scripts with the `--interactive` switch which allows you to type text in the console and display predictions.
 
 ### 4.1. Common parameter names used in this repo
 
@@ -279,7 +279,7 @@ Classification result: P(POSITIVE) = 0.998953104019165
 
 This script shows you how you can use the sequence's last hidden state to build a document classifier. We found that its performance was far worse with our pretrained models than the performance of a classifier described in the previous section. We suspect this is because the model was pretrained using a sentence-tokenized corpus with EOS markers at the end of each sequence. To be coherent, we also passed the EOS marker to the classification head in this script, but apparently the recurrent network isn't able to store various sentence "summaries" in an identical token. We nevertheless leave this classification head in the repo in case anyone wanted to investigate potential bugs.
 
-From a technical point of view obtaining the last hidden state is somewhat challenging with RaggedTensors. It turns out we cannot use -1 indexing (`encoder_output[:, -1, :]`) as we would normally do with fixed-length tensors. See the function `ulmfit_last_hidden_state` in [ulmfit_tf2_heads.py](ulmfit_tf2_heads.py) for a workaround.
+From a technical point of view obtaining the last hidden state is somewhat challenging with RaggedTensors. It turns out we cannot use -1 indexing (`encoder_output[:, -1, :]`) as we would normally do with fixed-length tensors. See the function `ulmfit_last_hidden_state` in [ulmfit_tf2_heads.py](tf2_ulmfit/ulmfit_tf2_heads.py) for a workaround.
 
 The invocation is identical as in the previous section.
 
@@ -456,9 +456,9 @@ shire          B-LOC
 
 ## 5. Pretraining your own language model from scratch (`pretraining_utils`)
 
-This section describes how to use a raw text corpus to train an ULMFiT language model. As explained at the beginning of this document and on our TFHub page, we use FastAI to train encoder weights, which we then convert to a Tensorflow model with the [convert_fastai2keras.py](convert_fastai2keras.py) script.
+This section describes how to use a raw text corpus to train an ULMFiT language model. As explained at the beginning of this document and on our TFHub page, we use FastAI to train encoder weights, which we then convert to a Tensorflow model with the [convert_fastai2keras.py](tf2_ulmfit/convert_fastai2keras.py) script.
 
-Our data preparation methods are somewhat different from the approach taken by FastAI's authors described in [Training a text classifier](https://docs.fast.ai/tutorial.text.html#Training-a-text-classifier). In particular, our data is sentence-tokenized. We also dispense with special tokens for such as `\\xmaj` or `\\xxrep` and rely on sentencepiece tokenization entirely. For these reasons our training script skips all the preprocessing, tokenization, transforms and numericalization steps, and expect inputs to be provided in an already numericalized form. Some of these steps are factored out to external scripts instead, which you will find in the [pretraining_utils](pretraining_utils) directory and which are described below.
+Our data preparation methods are somewhat different from the approach taken by FastAI's authors described in [Training a text classifier](https://docs.fast.ai/tutorial.text.html#Training-a-text-classifier). In particular, our data is sentence-tokenized. We also dispense with special tokens for such as `\\xmaj` or `\\xxrep` and rely on sentencepiece tokenization entirely. For these reasons our training script skips all the preprocessing, tokenization, transforms and numericalization steps, and expect inputs to be provided in an already numericalized form. Some of these steps are factored out to external scripts instead, which you will find in the [pretraining_utils](tf2_ulmfit/pretraining_utils) directory and which are described below.
 
 Obtaining source data and cleaning it up will require different techniques for each data source. Here we assume that you are already past this stage and **that you already have a reasonably clean raw corpus**. All you need to do is save it as three large plain text files (e.g. `train.txt`, `valid.txt` and `test.txt`) with one sentence per line. This is important since our scripts add BOS and EOS markers at the beginning and end of each line. As an alternative, you may want to train a language model on paragraphs or documents - in which each line in your text files will need to correspond to a paragraph or a document.
 

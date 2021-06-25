@@ -6,7 +6,7 @@ import tensorflow as tf
 import torch
 
 from fastai_lm_utils import save_as_keras
-from ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged, STLRSchedule
+from tf2_ulmfit.ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged, STLRSchedule
 
 
 def main(args):

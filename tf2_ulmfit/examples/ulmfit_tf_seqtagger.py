@@ -5,10 +5,10 @@ import readline
 
 import tensorflow as tf
 
-from lm_tokenizers import LMTokenizerFactory
-from ulmfit_commons import check_unbounded_training
-from ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
-from ulmfit_tf2_heads import ulmfit_sequence_tagger
+from tf2_ulmfit.lm_tokenizers import LMTokenizerFactory
+from tf2_ulmfit.ulmfit_commons import check_unbounded_training
+from tf2_ulmfit.ulmfit_tf2 import RaggedSparseCategoricalCrossEntropy, apply_awd_eagerly
+from tf2_ulmfit.ulmfit_tf2_heads import ulmfit_sequence_tagger
 
 
 # DEFAULT_LABEL_MAP = {0: 'O', 1: 'B-N', 2: 'I-N'}

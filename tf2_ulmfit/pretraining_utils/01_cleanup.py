@@ -15,7 +15,7 @@ import unicodedata
 
 import nltk
 
-from pretraining_utils.polish_sentence_nltk_tokenizer import extra_abbreviations
+from tf2_ulmfit.pretraining_utils.polish_sentence_nltk_tokenizer import extra_abbreviations
 
 logging.basicConfig(level=logging.INFO)
 

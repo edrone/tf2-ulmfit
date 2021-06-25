@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from corpus_feeder import LMCorpusLoader
 from corpus_feeder import tensor_shift
-from ulmfit_tf2_heads import ulmfit_rnn_encoder_native
+from tf2_ulmfit.ulmfit_tf2_heads import ulmfit_rnn_encoder_native
 
 PAD_ID = 1
 

@@ -93,7 +93,7 @@ def main(args):
     learner_obj = Learner(data_loaders, ulmfit_model, loss_func=CrossEntropyLossFlat(), opt_func=opt_func, \
                           cbs=callbacks, metrics=[accuracy, Perplexity()])
     print(learner_obj.model)
-    learner_obj.model_dir = '.'
+    learner_obj.model_dir = '..'
     if args.get('pretrained_model') is not None:
         learner_obj = _run_finetuning(learner_obj, args)
     else:

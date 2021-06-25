@@ -35,7 +35,7 @@ from fastai.text.models import get_text_classifier, AWD_LSTM
 from fastai.torch_core import get_model, TensorCategory
 from sklearn.metrics import classification_report
 
-from ulmfit_commons import read_labels, read_numericalize
+from tf2_ulmfit.ulmfit_commons import read_labels, read_numericalize
 
 
 def restore_encoder(*, pth_file, text_classifier):
@@ -143,7 +143,7 @@ def train(args):
               "you don't want to use any pretrained weights?")
     print(learner_obj.model)
     print(dls.one_batch())
-    learner_obj.model_dir = '..'
+    learner_obj.model_dir = '../..'
     if args.get('classifier_lr') is not None:
         learner_obj.fit_one_cycle(args['num_epochs'], args['classifier_lr'])
     else:

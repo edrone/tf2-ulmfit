@@ -23,7 +23,7 @@ from fastai.text.data import LMDataLoader
 from fastai.text.models import AWD_LSTM, get_language_model
 from tensorflow import add
 
-from fastai_lm_utils import get_fastai_tensors
+from tf2_ulmfit.fastai_lm_utils import get_fastai_tensors
 
 
 def main(args):

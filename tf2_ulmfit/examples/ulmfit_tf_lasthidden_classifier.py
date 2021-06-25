@@ -7,10 +7,10 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import classification_report
 
-from examples.ulmfit_tf_text_classifier import read_tsv_and_numericalize
-from ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
-from ulmfit_tf2 import STLRSchedule, PredictionProgressCallback, SPMNumericalizer
-from ulmfit_tf2_heads import ulmfit_last_hidden_state
+from tf2_ulmfit.examples.ulmfit_tf_text_classifier import read_tsv_and_numericalize
+from tf2_ulmfit.ulmfit_commons import check_unbounded_training, prepare_keras_callbacks, print_training_info, read_labels
+from tf2_ulmfit.ulmfit_tf2 import STLRSchedule, PredictionProgressCallback, SPMNumericalizer
+from tf2_ulmfit.ulmfit_tf2_heads import ulmfit_last_hidden_state
 
 
 def _restore_classifier_model_and_spm(args):
