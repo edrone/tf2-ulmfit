@@ -86,7 +86,7 @@ As you can see, the `SPMNumericalizer` object can even add BOS/EOS markers to ea
 
 In the previous section you see that sequences are numericalized into RaggedTensors containing variable length sequences. All the scripts, classes and functions in this repository operate on RaggedTensors by default. We also assumed this input to be used throughout this guide and the SavedModel modules available from Tensorflow Hub.
 
-**However, with RaggedTensors you cannot currently use Nvidia's CuDNN kernels for training LSTM networks**. This slows down your training on a GPU by ~5 to 7 times in comparison with the optimized implementation. For efficient training, you still need to set a fixed sequence length and add padding:
+**However, with RaggedTensors you cannot currently use Nvidia's CuDNN kernels for training LSTM networks** (https://github.com/tensorflow/tensorflow/issues/48838). This slows down your training on a GPU by ~5 to 7 times in comparison with the optimized implementation. For efficient training, you still need to set a fixed sequence length and add padding:
 
 ```
 spm_processor = SPMNumericalizer(name='spm_layer',
@@ -94,7 +94,7 @@ spm_processor = SPMNumericalizer(name='spm_layer',
                                  add_bos=True,
                                  add_eos=True,
                                  fixed_seq_len=70)
-print(spm_processor(tf.constant(['Hello, world'], dtype=tf.string)))
+print(spm_processor(tf.constant([['Hello, world']], dtype=tf.string)))
 tf.Tensor(
 [[    2  6753 34942 34957   770     3     1     1     1     1     1     1
       1     1     1     1     1     1     1     1     1     1     1     1
