@@ -329,7 +329,23 @@ class ExportableULMFiTRagged(tf.keras.Model):
         w3_mask = tf.nn.dropout(tf.fill(rnn3_w[1].shape, 1-awd_rate), rate=awd_rate)
         rnn3_w[1].assign(w3_mask * rnn3_w[2])
 
-@tf.keras.utils.register_keras_serializable()
+
+def keras_register_once(package='Custom', name=None):
+    """ A decorator that registers the wrapped class in Keras serialization framework only once """
+    if name is None:
+        raise ValueError(f"Please provide a name for the serializable Keras object")
+    def decorator(cls):
+        if tf.keras.utils.get_registered_object(f"{package}>{name}") is None:
+            print(f"Registering a Keras serializable object `{package}>{name}`")
+            registry = tf.keras.utils.register_keras_serializable(package=package, name=name)
+            registry(cls)
+        else:
+            print(f"Keras serializable object `{package}>{name}` already registered")
+        return cls
+    return decorator
+
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='SPMNumericalizer')
 class SPMNumericalizer(tf.keras.layers.Layer):
     """ A serializable Keras layer which wraps the text.SentencepieceTokenizer object
 
@@ -445,7 +461,8 @@ class RaggedSparseCategoricalCrossEntropy(tf.keras.losses.SparseCategoricalCross
         return super().call(y_true.flat_values, y_pred.flat_values)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='RaggedEmbeddingDropout')
 class RaggedEmbeddingDropout(tf.keras.layers.Layer):
     """ A Keras layer for embedding dropout which is serializable with ragged tensors """
     def __init__(self, encoder_dp_rate, **kwargs):
@@ -497,7 +514,8 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
         return cls(**config)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='EmbeddingDropout')
 class EmbeddingDropout(tf.keras.layers.Layer):
     """ A Keras layer for embedding dropout """
     def __init__(self, encoder_dp_rate, **kwargs):
@@ -544,7 +562,8 @@ class EmbeddingDropout(tf.keras.layers.Layer):
         return cls(**config)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='TiedDense')
 class TiedDense(tf.keras.layers.Layer):
     """ A dense layer with trainable biases and weights fixed (tied) to another dense layer """
     def __init__(self, reference_layer, activation, **kwargs):
@@ -590,7 +609,8 @@ class TiedDense(tf.keras.layers.Layer):
         return cls(**config)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='ExplicitMaskGenerator')
 class ExplicitMaskGenerator(tf.keras.layers.Layer):
     """ Explicitly return the propagated mask.
 
@@ -620,7 +640,8 @@ class ExplicitMaskGenerator(tf.keras.layers.Layer):
         return clazz
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='CustomMaskableEmbedding')
 class CustomMaskableEmbedding(tf.keras.layers.Embedding):
     """ Enhancement of TF's embedding layer where you can set the custom
         value for the mask token, not just zero. SentencePiece uses 1 for <pad>
@@ -657,7 +678,8 @@ class CustomMaskableEmbedding(tf.keras.layers.Embedding):
         return clazz
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='RaggedSpatialDropout1D')
 class RaggedSpatialDropout1D(tf.keras.layers.Layer):
     """ A serializable spatial dropout layer that works with RaggedTensors """
     def __init__(self, rate, **kwargs):
@@ -712,7 +734,8 @@ class RaggedSpatialDropout1D(tf.keras.layers.Layer):
       return cls(**config)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='ConcatPooler')
 class ConcatPooler(tf.keras.layers.Layer):
     """ Concatenates the encoder's last hidden state with vectors obtained from MaxPool and AvgPool across timesteps.
 
@@ -761,7 +784,8 @@ class ConcatPooler(tf.keras.layers.Layer):
       return cls(**config)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='RaggedConcatPooler')
 class RaggedConcatPooler(tf.keras.layers.Layer):
     """ Same as ConcatPooler but works with RaggedTensors """
     def __init__(self, inputs_are_flattened=False, **kwargs):
@@ -844,7 +868,8 @@ class AWDCallback(tf.keras.callbacks.Callback):
             apply_awd_eagerly(self.model_object, self.awd_rate)
 
 
-@tf.keras.utils.register_keras_serializable()
+# @tf.keras.utils.register_keras_serializable()
+@keras_register_once(package='Custom', name='STLRSchedule')
 class STLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """
     Implementation of slanted triangular learning rates as a Keras LR scheduler.
@@ -944,6 +969,14 @@ class OneCycleScheduler(tf.keras.callbacks.Callback):
         self.phase = 0
         self.step = 0
 
+        try:
+            _ = self.model.optimizer._get_hyper('learning_rate')
+        except KeyError:
+            print(f"WARNING: The optimizer doesn't have the `learning_rate` parameter! Something looks broken...")
+        try:
+            _ = self.model.optimizer._get_hyper('momentum')
+        except KeyError:
+            print(f"OneCycleSchduler warning: Your optimizer doesn't have the `momentum` parameter! Try SGD or AdamW instead.")
         self.set_lr(self.lr_schedule().start)
         self.set_momentum(self.mom_schedule().start)
 
@@ -961,26 +994,31 @@ class OneCycleScheduler(tf.keras.callbacks.Callback):
 
     def get_lr(self):
         try:
-            return tf.keras.backend.get_value(self.model.optimizer.lr)
-        except AttributeError:
-            return None
+            # return tf.keras.backend.get_value(self.model.optimizer.lr)
+            # print(f"LR is {self.model.optimizer._get_hyper('learning_rate')}")
+            return self.model.optimizer._get_hyper('learning_rate')
+        except NameError:
+            print("Oops... cannot get a LR! This looks very wrong!")
 
     def get_momentum(self):
         try:
-            return tf.keras.backend.get_value(self.model.optimizer.momentum)
-        except AttributeError:
-            return None
+            return self.model.optimizer._get_hyper('momentum')
+            # return tf.keras.backend.get_value(self.model.optimizer.momentum)
+        except NameError:
+            pass # Not all optimizers have the 'momentum' parameter
 
     def set_lr(self, lr):
         try:
-            tf.keras.backend.set_value(self.model.optimizer.lr, lr)
-        except AttributeError:
-            pass # ignore
+            self.model.optimizer._set_hyper('learning_rate', lr)
+            # tf.keras.backend.set_value(self.model.optimizer.lr, lr)
+        except KeyError:
+            print("Oops... cannot set a LR! This looks broken!")
 
     def set_momentum(self, mom):
         try:
-            tf.keras.backend.set_value(self.model.optimizer.momentum, mom)
-        except AttributeError:
+            self.model.optimizer._set_hyper('momentum', mom)
+            # tf.keras.backend.set_value(self.model.optimizer.momentum, mom)
+        except KeyError:
             pass # ignore
 
     def lr_schedule(self):
@@ -1020,7 +1058,8 @@ class LRFinder(tf.keras.callbacks.Callback):
 
     def on_train_batch_begin(self, batch, logs=None):
         self.lr = self.exp_annealing(self.step)
-        tf.keras.backend.set_value(self.model.optimizer.learning_rate, self.lr)
+        self.model.optimizer._set_hyper('learning_rate', self.lr)
+        # tf.keras.backend.set_value(.lr, self.lr)
 
     def on_train_batch_end(self, batch, logs=None):
         logs = logs or {}

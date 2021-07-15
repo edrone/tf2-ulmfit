@@ -7,7 +7,7 @@ import nltk
 import pandas as pd
 import sentencepiece as spm
 
-from ulmfit_tf2 import AWDCallback, LRFinder
+# from ulmfit_tf2 import AWDCallback, LRFinder
 
 
 def file_len(fname):
@@ -65,7 +65,7 @@ def prepare_keras_callbacks(*, args, model, hub_object,
                             monitor_metric='val_sparse_categorical_accuracy'):
     """Build a list of Keras callbacks according to command-line parameters parsed into `args`."""
     import tensorflow as tf  # tensorflow global import conflicts with fastai
-
+    from ulmfit_tf2 import AWDCallback, LRFinder
     callbacks = []
     if not args.get('awd_off'):
         callbacks.append(AWDCallback(model_object=model if hub_object is None else None,

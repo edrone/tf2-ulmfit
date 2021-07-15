@@ -37,6 +37,7 @@ def mk_labels(ls_json):
     return label_index
 
 def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
+                                          sep='\x01',
                                           iob_segmentation='b_until_first_whitespace_then_i',
                                           add_bos=False,
                                           add_eos=False,
@@ -53,10 +54,10 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
     tokenized_attributes_pieces = []
     tokenized_labels = []
 
-    print("Tokenizing...")
+    print("Tokenizing and aligning labels...")
     flen = file_len(input_tsv)
     with open(input_tsv, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f, delimiter='\x01')
+        reader = csv.reader(f, delimiter=sep)
         for row in tqdm(reader, total=flen): # row[0] = context, row[1] = query, row[2] = value in context or 'NULL'
             # pbar.update(row_idx)
             # print(row)
