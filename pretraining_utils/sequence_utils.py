@@ -16,13 +16,18 @@ def file_len(fname):
         raise IOError(err)
     return int(result.strip().split()[0])
 
-def pretty_print_tagged_sequences(subword_pieces, labels, intents, limit=5):
+# todo: use named params
+def pretty_print_tagged_sequences(subword_pieces, labels, intents, limit=5, gold=None):
     for i in range(len(subword_pieces)):
         if intents not in [None, []]:
             print(f"---> Intent/Header/Query/ATNI: {intents[i]}")
-        l = list(zip(subword_pieces[i], labels[i]))
-        for subword, label in l:
-            print("{:<15} {:<5}". format(subword, label))
+        #l = list(zip(subword_pieces[i], labels[i]))
+        #for subword, label in l:
+        for j in range(len(subword_pieces[i])):
+            if gold is None:
+                print("{:<15} {:<5}". format(subword_pieces[i][j], labels[i][j]))
+            else:
+                print("{:<15} {:<5} {:<5}". format(subword_pieces[i][j], labels[i][j], gold[i][j]))
         if i > limit:
             break
 
