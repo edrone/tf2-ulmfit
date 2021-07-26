@@ -62,8 +62,8 @@ def main(args):
         for i in range(len(outputs)):
             ce_losses.append(F.cross_entropy(outputs[i, :, :].to(device), targets[i]).to(device))
         bnum += 1
-    ppl = torch.exp(torch.sum(torch.tensor(ce_losses)) / len(ce_losses))
-    print(f"Perplexity = {ppl} (on {len(ce_losses)*args['batch_size']} sequences (stateful!)")
+        ppl = torch.exp(torch.sum(torch.tensor(ce_losses)) / len(ce_losses))
+        print(f"Perplexity = {ppl} (on {len(ce_losses)*args['batch_size']} sequences (stateful!)")
 
 
 if __name__ == "__main__":
