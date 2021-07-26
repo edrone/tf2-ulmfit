@@ -12,16 +12,9 @@ from functools import partial
 
 import torch
 import torch.nn.functional as F
-from fastai.callback.fp16 import MixedPrecision
-from fastai.callback.rnn import rnn_cbs
-from fastai.callback.training import GradientClip
-from fastai.data.core import Datasets
-from fastai.learner import Learner
-from fastai.losses import CrossEntropyLossFlat
-from fastai.optimizer import Adam
-from fastai.text.data import LMDataLoader
-from fastai.text.models import AWD_LSTM, get_language_model
-from tensorflow import add
+from fastai.basics import *
+from fastai.callback.all import *
+from fastai.text.all import *
 
 from fastai_lm_utils import get_fastai_tensors
 
