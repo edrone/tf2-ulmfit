@@ -31,6 +31,7 @@ def main(args):
     f_dst = open(args['save_path'], 'w', encoding='utf-8')
     for input_sentence in f_src:
         if cnt % 10000 == 0: logging.info(f"Tokenizing sentence {cnt}")
+        if args.get('lower'): input_sentence = input_sentence.lower()
         line = spmproc_encoder_fn(input_sentence.strip())
         sent_lengths.append(len(line))
         f_dst.write(" ".join(map(str, line)) + "\n")
@@ -60,6 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--corpus-path", required=True, help="Path to a raw text corpus (cleaned up and preprocessed). One line = one sentence.")
     parser.add_argument("--model-path", required=True, help="Path to .model file")
     parser.add_argument("--spm-extra-options", default="bos:eos", help="SPM extra options")
+    parser.add_argument("--lower", action='store_true', help="Downcase (if not done already) before encoding")
     parser.add_argument("--output-format", choices=['piece', 'id'], default="id", help="SPM output format")
     parser.add_argument("--save-path", required=True, help="Output path for an encoded corpus")
     parser.add_argument("--save-stats", action='store_true', help="Save corpus statistics")

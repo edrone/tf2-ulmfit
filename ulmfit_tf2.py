@@ -475,7 +475,7 @@ class RaggedEmbeddingDropout(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.bsize = input_shape[0]
-        print(">>>> INSIDE BUILD <<<<")
+        print(">>>> INSIDE BUILD / RaggedEmbDrop <<<<")
 
     def call(self, inputs, training=None): # inputs is a ragged tensor now
         if training is None:
