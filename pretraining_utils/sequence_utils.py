@@ -101,12 +101,16 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
                     res = spmproc.tokenize(context[entity_beg:entity_end]).numpy().tolist()
                     curr_context_tokens.extend(res)
                     curr_labels.extend(['B'] + ['I']*len(res-1))
-                elif iob_segmentation == 'b_until_first_whitespace_then_i':
+                elif iob_segmentation in ['b_until_first_whitespace_then_i', 'iob']:
                     whitespaced = context[entity_beg:entity_end].split()
                     for word_idx, word in enumerate(whitespaced):
                         res = spmproc.tokenize(word).numpy().tolist()
                         curr_context_tokens.extend(res)
                         curr_labels.extend(['B']*len(res) if word_idx == 0 else ['I']*len(res))
+                elif iob_segmentation in [None, 'none', 'b_only']:
+                    res = spmproc.tokenize(context[entity_beg:entity_end]).numpy().tolist()
+                    curr_context_tokens.extend(res)
+                    curr_labels.extend(['B']*len(res))
                 else:
                     raise ValueError(f"Unsupported IOB segmentation {iob_segmentation}")
                 i = entity_end
