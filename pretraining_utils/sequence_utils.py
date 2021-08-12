@@ -42,7 +42,7 @@ def mk_labels(ls_json):
     return label_index
 
 def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
-                                          sep='\x01',
+                                          sep='\t',
                                           iob_segmentation='b_until_first_whitespace_then_i',
                                           add_bos=False,
                                           add_eos=False,
@@ -68,7 +68,10 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
             # print(row)
             context = row[0]
             query = row[1]
-            atvi = row[2]
+            try:
+                atvi = row[2]
+            except IndexError: # test files do not contain the gold column
+                atvi = 'NULL'
             curr_context_tokens = []
             curr_context_pieces = []
             curr_attributes_pieces = []
