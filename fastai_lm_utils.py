@@ -25,21 +25,29 @@ def get_fastai_tensors(args):
     """
     L_tensors_train = L()
     L_tensors_valid = L()
-    data_sources = [(args['pretokenized_train'], 'trainset', L_tensors_train)]
+    train_ids_list = []
+    valid_ids_list = []
+    data_sources = [(args['pretokenized_train'], 'trainset', L_tensors_train, train_ids_list)]
     if args.get('pretokenized_valid') is not None:
         data_sources.append((args['pretokenized_valid'], 'validset', L_tensors_valid))
 
-    for datasource_path, datasource_name, L_tensors in data_sources:
+    for datasource_path, datasource_name, L_tensors, ids_list in data_sources:
         with open(datasource_path, 'r', encoding='utf-8') as f:
             print(f"Reading {datasource_name} from {datasource_path}")
             num_sents = file_len(datasource_path)
             cnt = 0
             for line in f:
                 if cnt % 10000 == 0: print(f"Processing {datasource_name}: line {cnt} / {num_sents}...")
-                tokens = TensorText(list(map(int, line.split())))
+                tokens = list(map(int, line.split()))
+                if args.get('also_return_ids_as_lists') and len(tokens) > args['min_seq_len']:
+                    ids_list.append(tokens)
+                tokens = TensorText(tokens)
                 if len(tokens) > args['min_seq_len']: L_tensors.append(tokens)
                 cnt += 1
-    return L_tensors_train, L_tensors_valid
+    if args.get('also_return_ids_as_lists'): # what a beautiful anti-pattern
+        return L_tensors_train, L_tensors_valid, train_ids_list, valid_ids_list
+    else:
+        return L_tensors_train, L_tensors_valid
 
 def save_as_keras(*, state_dict, exp_name, save_path, spm_model_file, fixed_seq_len):
     """
