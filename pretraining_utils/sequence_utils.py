@@ -100,11 +100,11 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
                 curr_labels.extend(['O']*len(res))
 
                 # inside span:
-                if iob_segmentation == 'b_on_first_subword_then_i':
+                if iob_segmentation in ['b_on_first_subword_then_i', 'iob']:
                     res = spmproc.tokenize(context[entity_beg:entity_end]).numpy().tolist()
                     curr_context_tokens.extend(res)
-                    curr_labels.extend(['B'] + ['I']*len(res-1))
-                elif iob_segmentation in ['b_until_first_whitespace_then_i', 'iob']:
+                    curr_labels.extend(['B'] + ['I']*(len(res)-1))
+                elif iob_segmentation == 'b_until_first_whitespace_then_i':
                     whitespaced = context[entity_beg:entity_end].split()
                     for word_idx, word in enumerate(whitespaced):
                         res = spmproc.tokenize(word).numpy().tolist()
