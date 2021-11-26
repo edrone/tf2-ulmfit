@@ -41,16 +41,42 @@ def mk_labels(ls_json):
     # index_label = {index:label for index,label in enumerate(sorted(labels_set))}
     return label_index
 
+
+def mark_multiple_spans(context, query):
+    """ Return spans of all asterisk-separated items of a `query` that occur in `context` """
+    atvis = query.split('*')
+    spans = []
+    truncating_context = context
+    last_span_end = 0
+    for atvi in atvis:
+        found = re.search(re.escape(atvi), truncating_context)
+        if not found:
+            print(f"WARNING: Cannot find attribute value `{atvi}` in sentence `{context}`")
+            continue
+        span = found.span()
+        # print(f"Found span {span} in remainder `{truncating_context}`")
+        span2 = (last_span_end+span[0], last_span_end+span[1])
+        spans.append(span2)
+        last_span_end = span2[1]
+        truncating_context = truncating_context[span[1]:]
+    return spans
+
+
 def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
                                           sep='\t',
                                           iob_segmentation='b_until_first_whitespace_then_i',
                                           add_bos=False,
                                           add_eos=False,
-                                          also_add_bos_eos_to_queries=False):
+                                          also_add_bos_eos_to_queries=False,
+                                          support_multiple_spans=False):
     """ other options:
         - 'b_on_first_subword_then_i'
         - 'bi_on_first_subwords_then_o'
         - None
+
+        If `support_multiple_spans` is set to True, the input sentence may contain more than one
+        span to be marked as an entity. In this case multiple values in the second column should
+        be separated with asterisks.
     """
     spmproc = spm_layer.spmproc
     tokenized_contexts = []
@@ -79,23 +105,27 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
             curr_labels = []
             i = 0
             if atvi == 'NULL':
-                span = None
+                spans = []
             else:
-                found = re.search(re.escape(atvi), context)
-                if not found:
-                    print(f"WARNING: Cannot find ATVI `{row[2]}` in title `{row[0]}`")
-                    continue
-                span = found.span()
+                if support_multiple_spans:
+                    spans = mark_multiple_spans(context, atvi)
+                else:
+                    found = re.search(re.escape(atvi), context)
+                    if not found:
+                        print(f"WARNING: Cannot find ATVI `{row[2]}` in title `{row[0]}`")
+                        continue
+                    spans = [found.span()]
 
             ##### CONTEXT WITH ATVI #####
             if add_bos:
                 curr_context_tokens.extend([BEGIN_INDEX])
                 curr_labels.extend(['O'])
-            if span:
+            i = 0
+            for span in spans: # if spans not in [None, []]:
                 # before span:
                 entity_beg = span[0]
                 entity_end = span[1]
-                res = spmproc.tokenize(context[0:entity_beg]).numpy().tolist()
+                res = spmproc.tokenize(context[i:entity_beg]).numpy().tolist()
                 curr_context_tokens.extend(res)
                 curr_labels.extend(['O']*len(res))
 
@@ -118,7 +148,7 @@ def subword_tokenize_and_find_label_spans(*, spm_layer, input_tsv,
                     raise ValueError(f"Unsupported IOB segmentation {iob_segmentation}")
                 i = entity_end
 
-            # after the span:
+            # after all the spans:
             res = spmproc.tokenize(context[i:]).numpy().tolist()
             curr_context_tokens.extend(res)
             curr_labels.extend(['O']*len(res))
