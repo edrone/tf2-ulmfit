@@ -29,7 +29,7 @@ def get_fastai_tensors(args):
     valid_ids_list = []
     data_sources = [(args['pretokenized_train'], 'trainset', L_tensors_train, train_ids_list)]
     if args.get('pretokenized_valid') is not None:
-        data_sources.append((args['pretokenized_valid'], 'validset', L_tensors_valid))
+        data_sources.append((args['pretokenized_valid'], 'validset', L_tensors_valid, valid_ids_list))
 
     for datasource_path, datasource_name, L_tensors, ids_list in data_sources:
         with open(datasource_path, 'r', encoding='utf-8') as f:

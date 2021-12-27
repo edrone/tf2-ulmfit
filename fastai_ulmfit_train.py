@@ -1,5 +1,5 @@
 """
-Pre-train ULMFit on already tokenized and numericalized corpora.
+Pre-train ULMFiT / MultiFiT on already tokenized and numericalized corpora.
 
 This script roughly follows the original FastAI's tutorial (https://docs.fast.ai/tutorial.wikitext.html#Model)
 but we dispense with their preprocessing transforms. Instead, we provide an already numericalized corpus
@@ -17,7 +17,7 @@ from fastai_lm_utils import get_fastai_tensors, lr_or_default
 
 def _run_pretraining(learner_obj, args):
     """
-    Runs pre-training of a new ULMFit model from scratch
+    Runs pre-training of a new ULMFiT / MultiFiT model from scratch
     """
     learner_obj.fit_one_cycle(args['num_epochs'],
                               args.get('pretrain_lr') or 5e-3,
@@ -68,13 +68,15 @@ def main(args):
 
     ############# The actual FastAI training happens below ############
 
-    config = awd_lstm_lm_config.copy()
-    config.update({'input_p': 0.6,
+    config = awd_qrnn_lm_config.copy() if args.get('qrnn') else awd_lstm_lm_config.copy()
+    config.update({'input_p': 0.4 if args.get('qrnn') else 0.6,
                    'output_p': 0.4,
-                   'weight_p': 0.5,
+                   'weight_p': 0.1 if args.get('qrnn') else 0.5,
                    'embed_p': 0.1,
                    'hidden_p': 0.2})
-    ulmfit_model = get_language_model(AWD_LSTM, args['vocab_size'], config=config) # produces a 3-layer LSTM as per the ULMFit paper
+    ulmfit_model = get_language_model(AWD_QRNN if args.get('qrnn') else AWD_LSTM ,
+                                      args['vocab_size'],
+                                      config=config) # produces a 3-layer LSTM as per the ULMFit paper or a 4-layer QRNN as per the MultiFiT paper
     opt_func = partial(Adam, wd=0.1, eps=1e-7)
     callbacks = [MixedPrecision(),
                  GradientClip(0.1),
@@ -88,7 +90,7 @@ def main(args):
         learner_obj = _run_finetuning(learner_obj, args)
     else:
         learner_obj = _run_pretraining(learner_obj, args)
-    print("Saving the ULMFit model in FastAI format ...")
+    print("Saving the {'MultiFiT' if args.get('qrnn') else 'ULMFiT'} model in FastAI format ...")
     os.makedirs(args['save_path'], exist_ok=True)
     learner_obj.save(os.path.join(args['save_path'], args['exp_name'])) # .pth will be added automatically
 
@@ -113,5 +115,6 @@ if __name__ == "__main__":
                                                                       "Only used for finetuning starting from the second epoch.") # 5e-4
     argz.add_argument("--save-path", required=True, help="Path where the outputs will be saved")
     argz.add_argument("--exp-name", required=True, help="Experiment name")
+    argz.add_argument('--qrnn', action='store_true', help="If set, will train a QRNN language model as per the MultiFiT paper (with 4 hidden layers, not 3)")
     argz = vars(argz.parse_args())
     main(argz)
