@@ -20,7 +20,7 @@ from .polish_sentence_nltk_tokenizer import extra_abbreviations
 logging.basicConfig(level=logging.INFO)
 
 
-def basic_cleanup(corpus_blob, lang, sent_tokenizer):
+def basic_cleanup(corpus_blob, lang, sent_tokenizer, min_ws_tokens_per_sentence=None):
     """ Cleans up for building SentencePiece model.
     
     corpus_blob - continuous text
@@ -41,6 +41,13 @@ def basic_cleanup(corpus_blob, lang, sent_tokenizer):
     sents = [re.sub(r"([\"”„\(\)])", " \\1 ", sent) for sent in sents]
     sents = [re.sub("(&quot\s*;|&amp\s;)", "", sent) for sent in sents] # remove html quirks
     sents = [re.sub("\s{2,}", " ", sent) for sent in sents] # remove extra spaces
+    if min_ws_tokens_per_sentence is not None:
+        logging.info(f"Filtering sentences with fewer than {min_ws_tokens_per_sentence} whitespace-separated tokens")
+        num_sents = len(sents)
+        sents = [s for s in sents if len(s.split()) >= min_ws_tokens_per_sentence]
+        num_sents_after_filtering = len(sents)
+        logging.info(f"Before: {num_sents} sentences, after: {num_sents_after_filtering}, " \
+                     f"filtered: {num_sents - num_sents_after_filtering}.")
     return sents
 
 def recase(text, min_span=4, cap_first=False):
@@ -171,11 +178,10 @@ def main(args):
     sent_tokenizer = nltk.data.load(f'tokenizers/punkt/{args["lang"]}.pickle')
     if args['lang'] == 'polish':
         sent_tokenizer._params.abbrev_types.update(extra_abbreviations)
-    sents = basic_cleanup(corpus_blob, args['lang'], sent_tokenizer)
+    sents = basic_cleanup(corpus_blob, args['lang'], sent_tokenizer, args.get('min_num_tokens'))
     if args.get('uncased') is True:
         logging.info(f"Downcasing...")
         sents = [sent.lower() for sent in sents]
-        sents = [re.sub("(&quot\s*;|&amp\s;)", "", sent) for sent in sents]
     with open(f"{args['out_path']}", "w", encoding="utf-8") as f:
         for sent in sents: f.write(sent + "\n")
     logging.info("Done")
@@ -185,6 +191,7 @@ if __name__ == "__main__":
                                                  "and saves the result as a text file with one sentence in each line")
     parser.add_argument("--lang", required=True, help="NLTK language name for sentence tokenization.")
     parser.add_argument("--input-text", required=True, help="Path to a raw text corpus. One big single file.")
+    parser.add_argument("--min-num-tokens", required=False, type=int, help="Minimum number of whitespace-separated tokens in a single sentence.")
     parser.add_argument("--uncased", required=False, action='store_true', help="Downcase everything")
     parser.add_argument("--out-path", required=True, help="Path where the results will be saved.")
     argz = parser.parse_args()
