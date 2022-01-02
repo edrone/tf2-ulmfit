@@ -72,9 +72,10 @@ def main(args):
     config.update({'input_p': 0.4 if args.get('qrnn') else 0.6,
                    'output_p': 0.4,
                    'weight_p': 0.1 if args.get('qrnn') else 0.5,
+                   'n_layers': args.get('num_hidden_layers') or (4 if args.get('qrnn') else 3),
                    'embed_p': 0.1,
                    'hidden_p': 0.2})
-    ulmfit_model = get_language_model(AWD_QRNN if args.get('qrnn') else AWD_LSTM ,
+    ulmfit_model = get_language_model(AWD_QRNN if args.get('qrnn') else AWD_LSTM,
                                       args['vocab_size'],
                                       config=config) # produces a 3-layer LSTM as per the ULMFit paper or a 4-layer QRNN as per the MultiFiT paper
     opt_func = partial(Adam, wd=0.1, eps=1e-7)
@@ -97,7 +98,7 @@ def main(args):
 if __name__ == "__main__":
     argz = argparse.ArgumentParser()
     argz.add_argument("--pretokenized-train", required=False, help="Path to a pretokenized and numericalized training corpus. "
-                      "Make sure you have <s> and </s> tokens there as needed because ULMFit will concatenate everything "
+                      "Make sure you have <s> and </s> tokens there as needed because ULMFiT will concatenate everything "
                       "into one big stream!")
     argz.add_argument("--pretokenized-valid", required=False, help="Path to a pretokenized and numericalized validation corpus. "
                       "Same tokenization rules apply as for the training corpus.")
@@ -105,6 +106,7 @@ if __name__ == "__main__":
                                                                  "finetuning")
     argz.add_argument("--min-seq-len", default=10, type=int, help="Minimal sentence length in the original corpus")
     argz.add_argument("--max-seq-len", default=80, type=int, help="Maximal sequence length in a training batch. This is the same as BPTT.")
+    argz.add_argument("--num-hidden-layers", required=False, type=int, help="Number of hidden layers in the encoder (defaults to 3 for ULMFiT and 4 for QRNN)")
     argz.add_argument("--batch-size", default=128, type=int, help="Batch size")
     argz.add_argument("--vocab-size", required=True, type=int, help="Vocabulary size")
     argz.add_argument("--num-epochs", default=1, type=int, help="Number of epochs to train for")
