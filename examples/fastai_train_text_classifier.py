@@ -63,7 +63,10 @@ def make_fastai_learner(*, args, x_train, y_train, x_test, y_test, label_map, sp
     ds = Datasets(df, [[attrgetter('numericalized')], [attrgetter('labels')]], splits=splits)
     dls = ds.dataloaders(bs=args['batch_size'], shuffle=True)
 
-    fastai_text_classifier = get_text_classifier(arch=AWD_LSTM,
+    clas_config = awd_qrnn_clas_config if args.get('qrnn') else awd_lstm_clas_config
+    clas_config.update({'n_layers': args['num_hidden_layers']})
+    fastai_text_classifier = get_text_classifier(arch=AWD_QRNN if args.get('qrnn') else AWD_LSTM,
+						 config=clas_config,
                                                  vocab_sz=args['vocab_size'],
                                                  n_class=len(label_map),
                                                  seq_len=args['fixed_seq_len'],
@@ -154,12 +157,16 @@ if __name__ == "__main__":
     argz.add_argument("--vocab-size", required=True, type=int, help="Vocabulary size")
     argz.add_argument("--num-epochs", required=False, type=int, help="Number of epochs to train for")
     argz.add_argument("--classifier-lr", required=False, type=float, help="Learning rate value for the 1- cycle policy optimizer.")  # 5e-4
+    argz.add_argument("--qrnn", required=False, action='store_true', help="Use QRNN instead of LSTM")
+    argz.add_argument("--num-hidden-layers", required=False, type=int, help="Number of hidden layers in the encoder")
     argz.add_argument("--save-path", required=False, help="Path where the outputs will be saved")
     argz.add_argument("--exp-name", required=False, help="Experiment name")
     argz.add_argument('--data-column-name', default='sentence', help="Name of the column containing X data")
     argz.add_argument('--gold-column-name', default='target', help="Name of the gold column in the tsv file")
 
     argz = vars(argz.parse_args())
+    if argz.get('num_hidden_layers') is None:
+        argz['num_hidden_layers'] = 4 if argz.get('qrnn') else 3
     if argz.get('train_tsv') is not None:
         assert argz.get('num_epochs') is not None, "Please provide the number of epochs in training mode"
         assert argz.get('save_path') is not None, "Please provide the output path and experiment name"
