@@ -54,13 +54,18 @@ def read_tsv_and_numericalize(*, tsv_file, args, also_return_df=False):
     else:
         x_data = tf.ragged.constant(x_data, dtype=tf.int32)
     y_data = tf.constant(y_data, dtype=tf.float32) # real-valued numbers
+    ret = {'x_data': x_data,
+           'y_data': y_data}
     if args.get('normalize_labels') is True:
         max_label_value = tf.reduce_max(y_data)
-        y_data = (y_data - 1.0) / (max_label_value - 1.0)
-    if also_return_df is True:
-        return x_data, y_data, df
-    else:
-        return x_data, y_data
+        y_data_norm = (y_data - 1.0) / (max_label_value - 1.0)
+        y_data_unscaled = ret.pop('y_data')
+        ret['y_data'] = y_data_norm
+        ret['y_data_orig'] = y_data_unscaled
+        df['y_data_orig'] = y_data_unscaled
+    if also_return_df:
+        ret['df'] = df
+    return ret
 
 def get_keras_regression_objects(loss_fn_name):
     if loss_fn_name == 'mae':
@@ -71,9 +76,13 @@ def get_keras_regression_objects(loss_fn_name):
         raise ValueError(f"Unknown loss function name {loss_fn_name}")
 
 def evaluate(args):
-    x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'],
-                                                        args=args,
-                                                        also_return_df=True)
+    read_data = read_tsv_and_numericalize(tsv_file=args['test_tsv'],
+                                          args=args,
+                                          also_return_df=True)
+    x_test = read_data['x_data']
+    y_test = read_data['y_data']
+    y_test_orig = y_test if read_data.get('y_data_orig') is None else read_data['y_data_orig']
+    test_df = read_data['df']
     spm_args = {'spm_model_file': args['spm_model_file'], 'add_bos': True, 'add_eos': True,
                 'lumped_sents_separator': '[SEP]'}
     ulmfit_regressor_model, hub_object = ulmfit_regressor(model_type=args['model_type'],
@@ -86,10 +95,18 @@ def evaluate(args):
     y_preds = ulmfit_regressor_model.predict(x_test, batch_size=args['batch_size'],
                                              callbacks=[PredictionProgressCallback(x_test.shape[0] // args['batch_size'])])
     y_test = y_test.numpy().tolist()
-    y_preds = np.squeeze(y_preds).tolist()
+    y_preds = np.squeeze(y_preds)
+    if args.get('normalize_labels'):
+        max_label_value = tf.reduce_max(y_test_orig)
+        y_preds_rescaled =  ((max_label_value - 1.0) * (y_preds)) + 1.0
+    else:
+        y_preds_rescaled = y_preds
+    y_preds = y_preds.tolist(); y_preds_rescaled = y_preds_rescaled.numpy().tolist()
     df2 = pd.DataFrame.from_dict({'nltext': test_df[args['data_column_name']].tolist(),
                                   'gold': y_test,
-                                  'y_preds': y_preds})
+                                  'gold_unscaled': y_test_orig,
+                                  'y_preds': y_preds,
+                                  'y_preds_rescaled': y_preds_rescaled})
     if args['loss_fn'] == 'mae':
         df2['error'] = (df2['y_preds'] - df2['gold']).abs()
     elif args['loss_fn'] == 'mse':
@@ -100,11 +117,15 @@ def evaluate(args):
  
 def main(args):
     check_unbounded_training(args.get('fixed_seq_len'), args.get('max_seq_len'))
-    x_train, y_train = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
+    read_data = read_tsv_and_numericalize(tsv_file=args['train_tsv'], args=args)
+    x_train = read_data['x_data']
+    y_train = read_data['y_data']
     print(y_train)
     if args.get('test_tsv') is not None:
-        x_test, y_test, test_df = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args,
-                                                            also_return_df=True)
+        read_data = read_tsv_and_numericalize(tsv_file=args['test_tsv'], args=args, also_return_df=True)
+        x_test = read_data['x_data']
+        y_test = read_data['y_data']
+        test_df = read_data['df']
         print(y_test)
     else:
         x_test = y_test = None

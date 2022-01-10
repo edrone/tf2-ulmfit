@@ -87,7 +87,8 @@ def evaluate(args):
                                                                    x_train=[], y_train=[],
                                                                    x_test=x_test, y_test=y_test,
                                                                    label_map=label_map, splits=None)
-    learner_obj.load(os.path.splitext(os.path.abspath(args['pretrained_model']))[0])
+    learner_obj.model_dir = os.path.dirname(os.path.abspath(args['pretrained_model']))
+    learner_obj.load(os.path.splitext(os.path.basename(args['pretrained_model']))[0])
     print(f"Restored FastAI text classifier from {args['pretrained_model']}")
     learner_obj.model.eval()
     logits, _, _ = learner_obj.model(TensorText(x_test))
