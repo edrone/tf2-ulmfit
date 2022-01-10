@@ -121,7 +121,7 @@ def ulmfit_last_hidden_state(*, model_type, pretrained_encoder_weights, spm_mode
 
 
 def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_classes,
-                               spm_model_args=None, fixed_seq_len=None,
+                               spm_model_args=None, fixed_seq_len=None, use_bias=False,
                                with_batch_normalization=False, activation='softmax'):
     """
     Document classification head as per the ULMFiT paper:
@@ -155,15 +155,15 @@ def ulmfit_document_classifier(*, model_type, pretrained_encoder_weights, num_cl
     if with_batch_normalization is True:
         bnorm_pooler = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(drop_pooler)
         bnorm_drop = tf.keras.layers.Dropout(0.1)(bnorm_pooler)
-        fc1 = tf.keras.layers.Dense(50, activation='linear', use_bias=False)(bnorm_drop)
+        fc1 = tf.keras.layers.Dense(50, activation='linear', use_bias=use_bias)(bnorm_drop)
         relu1 = tf.keras.layers.ReLU()(fc1)
         bnorm1 = tf.keras.layers.BatchNormalization(epsilon=1e-05, momentum=0.1, scale=False, center=False)(relu1)
         drop2 = tf.keras.layers.Dropout(0.1)(bnorm1)
-        fc_final = tf.keras.layers.Dense(num_classes, use_bias=False, activation='softmax')(drop2)
+        fc_final = tf.keras.layers.Dense(num_classes, use_bias=use_bias, activation='softmax')(drop2)
     else:
-        fc1 = tf.keras.layers.Dense(50, activation='relu', use_bias=False)(drop_pooler)
+        fc1 = tf.keras.layers.Dense(50, activation='relu', use_bias=use_bias)(drop_pooler)
         drop2 = tf.keras.layers.Dropout(0.1)(fc1)
-        fc_final = tf.keras.layers.Dense(num_classes, activation=activation, use_bias=False)(drop2)
+        fc_final = tf.keras.layers.Dense(num_classes, activation=activation, use_bias=use_bias)(drop2)
 
     document_classifier_model = tf.keras.models.Model(inputs=ulmfit_rnn_encoder.inputs, outputs=fc_final)
     return document_classifier_model, hub_object
@@ -182,6 +182,7 @@ def ulmfit_regressor(*, model_type, pretrained_encoder_weights,
                                                        num_classes=1,
                                                        spm_model_args=spm_model_args,
                                                        fixed_seq_len=fixed_seq_len,
+                                                       use_bias=True,
                                                        with_batch_normalization=with_batch_normalization,
                                                        activation='linear')
     return regressor, hub_object
