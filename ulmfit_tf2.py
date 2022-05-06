@@ -8,6 +8,20 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tqdm import trange
 
+def tf2_spm_numericalizer(*, spm_args, fixed_seq_len):
+    """ Build a Sentencepiece numericalizer. """
+    seq_type = "ragged" if fixed_seq_len is None else "fixed"
+    string_input_layer = tf.keras.layers.Input(shape=(), dtype=tf.string, name=f"{seq_type}_string_input")
+    spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
+                                 add_bos=spm_args.get('add_bos') or False,
+                                 add_eos=spm_args.get('add_eos') or False,
+                                 fixed_seq_len=fixed_seq_len,
+                                 lumped_sents_separator=spm_args.get('lumped_sents_separator') or "",
+                                 name=f"{seq_type}_spm_numericalizer")
+    numericalized_layer = spm_layer(string_input_layer)
+    vocab_size_ = spm_layer.spmproc.vocab_size().numpy()
+    spm_encoder_model = tf.keras.Model(inputs=string_input_layer, outputs=numericalized_layer)
+    return spm_encoder_model
 
 def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_args=None, vocab_size=None):
     """ Builds an ULMFiT as a model trainable in Keras.
@@ -61,17 +75,20 @@ def tf2_ulmfit_encoder(*, fixed_seq_len=None, flatten_ragged_outputs=True, spm_a
     uniform_initializer = tf.keras.initializers.RandomUniform(minval=-0.1, maxval=0.1, seed=None) # initializer for embeddings
 
     if spm_args is not None: # do not attach a string numericalizer if spm_args isn't passed
-        seq_type = "ragged" if fixed_seq_len is None else "fixed"
-        string_input_layer = tf.keras.layers.Input(shape=(), dtype=tf.string, name=f"{seq_type}_string_input")
-        spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
-                                     add_bos=spm_args.get('add_bos') or False,
-                                     add_eos=spm_args.get('add_eos') or False,
-                                     fixed_seq_len=fixed_seq_len,
-                                     lumped_sents_separator=spm_args.get('lumped_sents_separator') or "",
-                                     name=f"{seq_type}_spm_numericalizer")
-        numericalized_layer = spm_layer(string_input_layer)
-        vocab_size_ = spm_layer.spmproc.vocab_size().numpy()
-        spm_encoder_model = tf.keras.Model(inputs=string_input_layer, outputs=numericalized_layer)
+        # seq_type = "ragged" if fixed_seq_len is None else "fixed"
+        # string_input_layer = tf.keras.layers.Input(shape=(), dtype=tf.string, name=f"{seq_type}_string_input")
+        # spm_layer = SPMNumericalizer(spm_path=spm_args['spm_model_file'],
+        #                              add_bos=spm_args.get('add_bos') or False,
+        #                              add_eos=spm_args.get('add_eos') or False,
+        #                              fixed_seq_len=fixed_seq_len,
+        #                              lumped_sents_separator=spm_args.get('lumped_sents_separator') or "",
+        #                              name=f"{seq_type}_spm_numericalizer")
+        # numericalized_layer = spm_layer(string_input_layer)
+        # vocab_size_ = spm_layer.spmproc.vocab_size().numpy()
+        # spm_encoder_model = tf.keras.Model(inputs=string_input_layer, outputs=numericalized_layer)
+
+        spm_encoder_model = tf2_spm_numericalizer(spm_args=spm_args, fixed_seq_len=fixed_seq_len)
+        vocab_size_ = spm_encoder_model.layers[1].spmproc.vocab_size().numpy()
     else:
         vocab_size_ = vocab_size
         spm_encoder_model = None
