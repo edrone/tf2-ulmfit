@@ -6,8 +6,8 @@ import os
 from fastai.text.data import TensorText
 from fastcore.foundation import L
 
-from ulmfit_commons import file_len
-from ulmfit_tf2 import tf2_ulmfit_encoder
+from .ulmfit_commons import file_len
+from .ulmfit_tf2 import tf2_ulmfit_encoder
 
 
 def lr_or_default(lr, learner_obj):

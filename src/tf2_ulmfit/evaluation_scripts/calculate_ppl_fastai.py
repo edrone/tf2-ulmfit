@@ -16,7 +16,7 @@ from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
 
-from fastai_lm_utils import get_fastai_tensors
+from ..fastai_lm_utils import get_fastai_tensors
 
 def word_level_ppl(spm_model_file, ids_list, subword_ppl_score):
     """ 

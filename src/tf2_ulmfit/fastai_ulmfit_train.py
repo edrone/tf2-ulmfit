@@ -12,7 +12,7 @@ from functools import partial
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
-from fastai_lm_utils import get_fastai_tensors, lr_or_default
+from .fastai_lm_utils import get_fastai_tensors, lr_or_default
 
 
 def _run_pretraining(learner_obj, args):

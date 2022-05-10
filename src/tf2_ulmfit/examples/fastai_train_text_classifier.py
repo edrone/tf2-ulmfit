@@ -22,7 +22,7 @@ import pandas as pd
 from fastai.text.all import *
 from sklearn.metrics import classification_report
 
-from ulmfit_commons import read_labels, read_numericalize
+from ..ulmfit_commons import read_labels, read_numericalize
 
 
 def restore_encoder(*, pth_file, text_classifier):

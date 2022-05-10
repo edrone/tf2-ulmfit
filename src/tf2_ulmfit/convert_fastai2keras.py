@@ -7,8 +7,8 @@ import tensorflow as tf
 from fastai.basics import *
 from fastai.callback.all import *
 from fastai.text.all import *
-from fastai_lm_utils import save_as_keras
-from ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged, STLRSchedule
+from .fastai_lm_utils import save_as_keras
+from .ulmfit_tf2 import ExportableULMFiT, ExportableULMFiTRagged, STLRSchedule
 
 
 def main(args):
